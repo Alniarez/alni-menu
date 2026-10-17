@@ -1,7 +1,7 @@
 ## Interface: 120100, 16001
 ## Title: AlniMenu
 ## Notes: Replaces the Game Menu that Esc opens with a customizable one.
-## Version: 0.1.3
+## Version: 0.1.4
 ## Author: Alniarez
 ## OptionalDeps: AlniDev
 ## IconTexture: Interface\Icons\inv_misc_gear_01
@@ -13,4 +13,13 @@ Core.lua
 Menu.lua
 Custom.lua
 Settings.lua
-Plugins.lua
+Plugins/Volume.lua
+Plugins/Latency.lua
+Plugins/Durability.lua
+Plugins/Bags.lua
+Plugins/Gold.lua
+Plugins/Clock.lua
+Plugins/Experience.lua
+Plugins/Sound.lua
+Plugins/Separator.lua
+Plugins/TotalRP3.lua

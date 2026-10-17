@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.1.4
+
+- New widgets
+  - Clock (date in the tooltip, click it for the game's clock)
+  - Durability
+  - Bag Space
+  - Gold
+  - Level
+  - Sound toggles
+  - Total RP 3 toolbar integration
+- Edit mode
+  - Removed Unused column
+  - Reorganized buttons
+- Small visual changes
+
 ## 0.1.3
 
 - New Compact layout

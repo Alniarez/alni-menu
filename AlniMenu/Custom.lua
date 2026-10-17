@@ -1,7 +1,5 @@
 -- AlniMenu/Custom.lua
--- The window for adding, changing and deleting the player's own buttons: a label, a macro and the category it goes in.
--- Opened from edit mode (Add Button, or the pencil on a custom button's bar). For a built-in button the pencil opens it
--- smaller, to rename it only.
+-- The window for the player's own buttons (label, macro, category), and for renaming built-in ones.
 
 local ADDON_NAME, ns = ...
 
@@ -21,19 +19,19 @@ local TEMPLATES = {
 local window
 local editingKey   -- the button being changed; nil for a new custom one
 local renaming     -- true: renaming a built-in button
+local newCategory  -- the category a new custom button goes in
 
 local function Say(text)
     print("|cff33ff99" .. ADDON_NAME .. ":|r " .. text)
 end
 
---- The categories as dropdown options, by index, then Unused
+--- The categories as dropdown options, by index
 ---@return table
 local function CategoryOptions()
     local options = {}
     for i, category in ipairs(AlniMenuDB.layout) do
         options[i] = { value = i, label = category.name }
     end
-    table.insert(options, { value = 0, label = "Unused" })
     return options
 end
 
@@ -72,7 +70,7 @@ local function PutIn(key, index)
     end
 end
 
---- Renaming a built-in button: its own label (or an empty box) undoes it
+--- Renaming a built-in button. Its own label, or an empty box, undoes it.
 local function SaveRename()
     local key = editingKey
     local text = strtrim(window.label:GetText())
@@ -117,7 +115,7 @@ local function Save()
     -- without a category picker, new buttons go in the first category
     local index = window.category and window.category:GetValue()
     if index == nil then
-        index = editingKey and CategoryOf(key) or 1
+        index = editingKey and CategoryOf(key) or newCategory or 1
     end
     -- unused buttons are off; out of Unused (or new), on
     local from = editingKey and CategoryOf(key) or 0
@@ -133,7 +131,7 @@ local function Save()
     ns.ApplyLayout()
 end
 
---- Deletes custom button `key` (from its window, or its X in edit mode)
+--- Deletes custom button `key`
 ---@param key string
 function ns.DeleteCustomButton(key)
     local entry = ns.ENTRIES[key]
@@ -291,7 +289,8 @@ end
 
 --- Opens the window for custom button `key`, or for a new one (nil)
 ---@param key string?
-function ns.EditCustomButton(key)
+---@param category integer? where a new one goes (default: the first category)
+function ns.EditCustomButton(key, category)
     if InCombatLockdown() then
         return
     end
@@ -299,6 +298,7 @@ function ns.EditCustomButton(key)
         BuildWindow()
     end
     editingKey = key
+    newCategory = category
     SetMode(false)
 
     local data = key and AlniMenuDB.custom[ns.ENTRIES[key].custom]
@@ -306,7 +306,9 @@ function ns.EditCustomButton(key)
     window.macro:SetText(data and data.macro or "")
     if window.category then
         window.category:SetOptions(CategoryOptions())
-        window.category:SetValue(key and CategoryOf(key) or 1)
+        -- empty for a button not in the menu: saving keeps it out unless a category is picked
+        local current = key and CategoryOf(key)
+        window.category:SetValue(current ~= 0 and current or (not key and (category or 1)) or nil)
     end
     window.delete:SetShown(key ~= nil)
     if window.template then

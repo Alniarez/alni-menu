@@ -1,14 +1,10 @@
 -- AlniMenu/Core.lua
--- Saved settings, and making Esc open AlniMenu instead of the Game Menu.
+-- Saved settings, and Esc opening AlniMenu instead of the Game Menu.
 --
--- Whenever the Game Menu opens, AlniMenu closes it and opens in its place. Esc closes AlniMenu like any addon window
--- (UISpecialFrames).
+-- Not RegisterGameMenuEscHandler: adding to it from addon code taints Blizzard's own Esc handlers.
 --
--- Not RegisterGameMenuEscHandler: adding to that list from addon code taints it, and then Blizzard's own Esc handlers
--- are blocked (SpellStopCasting, SpellStopTargeting).
---
--- The Game Menu opens as usual:
---   in combat       AlniMenu's secure buttons (Log Out, Exit Game...) cannot be shown
+-- The Game Menu still opens:
+--   in combat       AlniMenu's secure buttons can't be shown then
 --   with Shift+Esc  always
 --   once allowed    from AlniMenu's Blizzard Menu button
 
@@ -67,13 +63,15 @@ local function InitDB()
     end
     -- layouts saved from edit mode
     AlniMenuDB.layouts = AlniMenuDB.layouts or {}
+    -- what widgets save for themselves (row.settings)
+    AlniMenuDB.widgetSettings = AlniMenuDB.widgetSettings or {}
     AlniMenuDB.buttons = AlniMenuDB.buttons or {}
 end
 
---- The layout, once every addon has loaded and registered its widgets (PLAYER_LOGIN)
+--- The layout, at PLAYER_LOGIN when every addon has registered its widgets
 local function InitLayout()
     ns.LoadInstances()
-    -- which buttons are switched on, by key; missing ones use their default
+    -- which buttons are on, missing ones use their default
     for key, entry in pairs(ns.ENTRIES) do
         if not entry.always and AlniMenuDB.buttons[key] == nil then
             AlniMenuDB.buttons[key] = entry.default and true or false
@@ -112,8 +110,7 @@ local events = CreateFrame("Frame")
 events:RegisterEvent("ADDON_LOADED")
 events:RegisterEvent("PLAYER_LOGIN")
 events:RegisterEvent("PLAYER_REGEN_DISABLED")
--- while AlniMenu is a proof of concept: say which Blizzard-only action it was stopped from doing, so it can be moved to
--- a secure button
+-- say what Blizzard blocked, so it can move to a secure button
 events:RegisterEvent("ADDON_ACTION_FORBIDDEN")
 events:RegisterEvent("ADDON_ACTION_BLOCKED")
 events:SetScript("OnEvent", function(self, event, name, func)
@@ -130,7 +127,7 @@ events:SetScript("OnEvent", function(self, event, name, func)
     elseif event == "PLAYER_LOGIN" then
         InitLayout()
     elseif event == "PLAYER_REGEN_DISABLED" then
-        -- the last moment its secure buttons may still be hidden
+        -- last moment its secure buttons can still be hidden
         ns.HideMenu()
     end
 end)

@@ -8,11 +8,11 @@ local ADDON_NAME, ns = ...
 -- the Game Menu's own sizes (MainMenuFrameTemplate)
 local BUTTON_W, BUTTON_H = 200, 36
 local COLUMN_GAP         = 8    -- between columns
-local SECTION_GAP        = 20   -- between sections
+local SECTION_GAP        = 12   -- between sections
 local HEADING_H          = 20   -- the category names over the columns
-local TOP, BOTTOM        = 48, 34
+local TOP, BOTTOM        = 40, 26
 local RELEASE            = "Beta"   -- shown after the version in the menu's corner; "" for none
-local SIDE               = 28
+local SIDE               = 20
 local EDIT_W             = 260  -- columns in edit mode, room for the controls
 local MIN_UNUSED_ROWS    = 8    -- Unused wraps into more columns past this or the tallest category
 
@@ -33,19 +33,14 @@ end
 --
 -- ENTRIES[key]:
 --   text     label
---   default  on until the player switches it in the settings
---   always   cannot be switched off (none at the moment)
---   action   function returning how the button works on this client,
---            or nil where it cannot:
---              { click = frame }   a secure click on that Blizzard button
---              { macro = "/cmd" }  a secure slash command
+--   default  on by default
+--   always   can't be switched off
+--   action   function returning how it works on this client, or nil:
+--              { click = frame }   secure click on a Blizzard button
+--              { macro = "/cmd" }  secure slash command
 --              { func = fn }       fn() after the menu closes
---   shown    optional: function returning whether it applies right now
---   badge    optional: function returning what to mark it with now, as
---            the Game Menu does: "new" (the NEW label) or "alert" (the
---            notification dot), or nil; and, for an alert, the reason,
---            shown when the button is hovered (as the micro menu's
---            callouts say it)
+--   shown    optional: whether it applies right now
+--   badge    optional: "new" or "alert" (and why), like the Game Menu's marks
 --------------------------------------------------
 
 --- A Blizzard button to click, if this client has it
@@ -60,8 +55,7 @@ local function Click(name)
     end
 end
 
---- A function to call, if this client has the global `name` (checked when the menu is built, once every Blizzard file
---- has loaded); with no name, always
+--- A function to call, if the global `name` exists (always, with no name)
 ---@param name string?
 ---@param fn function
 ---@return function
@@ -81,9 +75,7 @@ local function OpenSettings()
     SettingsPanel:Open()
 end
 
---- Blizzard's own menu, for anything AlniMenu does not offer. Opened from addon code, so its buttons run as AlniMenu's
---- code; if Blizzard blocks any of them (Log Out, Exit Game...), the chat line from Core.lua names it, and Shift+Esc
---- opens the menu untouched instead.
+--- Blizzard's own menu, for anything AlniMenu doesn't offer
 local function ShowBlizzardMenu()
     ns.allowBlizzardMenu = true   -- AlniMenu steps aside this once
     if GameMenuFrame_Show then
@@ -93,9 +85,8 @@ local function ShowBlizzardMenu()
     end
 end
 
---- The profession in slot `slot` of GetProfessions() (1 and 2: the main professions, 5: Cooking), as its name and the
---- spell that opens its window: the first spell of the profession in the spellbook, the one the Professions book casts.
---- Nil when the character has none there.
+--- Profession in slot `slot` of GetProfessions() (1, 2: main ones, 5: Cooking): its name and the spell that opens it.
+--- Nil when there is none.
 ---@param slot integer
 ---@return function
 local function Profession(slot)
@@ -117,10 +108,8 @@ local function Profession(slot)
 end
 
 --------------------------------------------------
--- Alerts: the reasons the micro menu calls attention to a window (MainMenuBarMicroButtons.lua and
--- Blizzard_Tutorials_Professions.lua), worked out the same way here. Each returns the message, or nil. Worked out, not
--- read off the micro buttons: Blizzard disables those, and hides their dots, while the Game Menu is open, which is just
--- when AlniMenu opens.
+-- Alerts: why the micro menu highlights a window, worked out like Blizzard does. Each returns the message or nil. Not
+-- read off the micro buttons: those are disabled while the Game Menu is open.
 --------------------------------------------------
 
 local Alerts = {}
@@ -209,8 +198,7 @@ function Alerts.AdventureGuide()
     end
 end
 
---- An open support ticket that needs something from the player: the box Blizzard shows by the buffs
---- (TicketStatusFrame), in its own words
+--- An open support ticket that needs the player, in Blizzard's words
 ---@return string?
 function Alerts.Ticket()
     if TicketStatusFrame and TicketStatusFrame:IsShown() then
@@ -241,7 +229,7 @@ local function AlertBadge(check, ...)
     end
 end
 
---- A button that casts the spell of a profession (a secure spell button, as in the Professions book)
+--- A secure button casting a profession's spell
 ---@param slot integer
 ---@param fallback string
 ---@return table
@@ -295,8 +283,7 @@ local ENTRIES = {
     profession1  = ProfessionEntry(1, "First Profession"),
     profession2  = ProfessionEntry(2, "Second Profession"),
     cooking      = ProfessionEntry(5, "Cooking"),
-    -- Forever has a micro button for each, to click securely; Retail has one for both, so there it takes Blizzard's
-    -- function
+    -- Forever has a micro button for each, Retail one for both (so Blizzard's function)
     spellbook    = { text = L("SPELLBOOK", "Spellbook"),
                      action = function()
                          return Click("SpellbookMicroButton")()
@@ -362,24 +349,25 @@ local ENTRIES = {
 --------------------------------------------------
 -- Widgets
 --
--- Rows that are not buttons, registered with AlniMenu.RegisterWidget by AlniMenu itself (Plugins.lua) or by other
--- addons. Added from edit mode (Add Widget), never in Unused. A `multiple` widget can be added any number of times:
--- each one is the entry "<key><id>", saved as AlniMenuDB.instances["<key><id>"] = key.
+-- Rows that aren't buttons, from AlniMenu.RegisterWidget (the Plugins folder or other addons). Never in Unused. A
+-- `multiple` widget can be added many times, each one is "<key><id>" in AlniMenuDB.instances.
 --------------------------------------------------
 
 ---@class AlniMenuWidget
----@field text string label, also in the Add Widget list (default: the key)
+---@field text string label, also in the + lists (default: the key)
 ---@field create? fun(row: AlniMenuWidgetRow) builds the widget in its row
 ---@field update? fun(row: AlniMenuWidgetRow) shows `row.name` (renamed or not) in `row.label`; default: the name alone
 ---@field height? number row height outside edit mode (default: a button's)
 ---@field multiple? boolean can be added any number of times, like separators
+---@field shown? fun(): boolean whether it shows right now, like buttons that only apply sometimes (default: always)
 
 ---@class AlniMenuWidgetRow: Frame
 ---@field label FontString centered in the row
 ---@field name string the widget's label, as the player named it
 ---@field lib table AlniMenu's copy of AlnUI, for building the widget
+---@field settings table saved for this widget across sessions, for its own options
 
-local WIDGETS = {}       -- registered widget keys, in the order Add Widget lists them
+local WIDGETS = {}       -- registered widget keys, in the order the + lists them
 local WIDGET_DEFS = {}   -- key -> AlniMenuWidget
 
 --- The catalog entry for widget `key`, or for its instance `id`
@@ -390,7 +378,7 @@ local WIDGET_DEFS = {}   -- key -> AlniMenuWidget
 local function WidgetEntry(key, def, id)
     local entryKey = id and (key .. id) or key
     ENTRIES[entryKey] = ENTRIES[entryKey] or {
-        key = entryKey, widget = def, instance = id, text = def.text, rowHeight = def.height,
+        key = entryKey, widget = def, instance = id, text = def.text, rowHeight = def.height, shown = def.shown,
         action = function() return { widget = def } end,
     }
     return entryKey
@@ -430,9 +418,15 @@ end
 
 AlniMenu = AlniMenu or {}
 
---- Adds a widget to AlniMenu's Add Widget list. Call it before PLAYER_LOGIN (from your addon's main chunk), with `##
---- OptionalDeps: AlniMenu` in your TOC so AlniMenu loads first. Use a key unique to your addon, like "MyAddon_Clock".
---- See Plugins.lua for examples.
+--- Closes the menu, for widgets that open another window. False if it was not open, or in combat.
+---@return boolean
+function AlniMenu.HideMenu()
+    return ns.HideMenu()
+end
+
+--- Adds a widget to the + lists in edit mode. Call it before PLAYER_LOGIN, with `## Dependencies: AlniMenu` in your TOC
+--- (`## OptionalDeps: AlniMenu` if your addon does more than this). Use a key unique to your addon. See the Plugins
+--- folder.
 ---@param key string
 ---@param def AlniMenuWidget
 function AlniMenu.RegisterWidget(key, def)
@@ -446,7 +440,7 @@ function AlniMenu.RegisterWidget(key, def)
     if not def.multiple then
         WidgetEntry(key, def)
     end
-    -- registered late: its saved instances, and buttons if the menu is built
+    -- registered late
     if ns.ready then
         ns.LoadInstances()
         for entryKey, entry in pairs(ENTRIES) do
@@ -458,15 +452,13 @@ function AlniMenu.RegisterWidget(key, def)
 end
 
 --------------------------------------------------
--- Layout: which buttons go in which category
+-- Layout
 --
--- AlniMenuDB.layout is a list of categories, left to right; each is a column in the menu:
---   name   heading over the column (and over its settings checkboxes)
+-- AlniMenuDB.layout: categories, left to right, one column each:
+--   name   heading
 --   items  button keys, top to bottom
---   gaps   { [key] = true } for a gap above that button, as between
---          the Game Menu's groups
--- Buttons in no category are unused. The editor (Editor.lua) changes it; DEFAULT_LAYOUT is where it starts and what
--- Reset goes back to.
+--   gaps   { [key] = true } for a gap above that button
+-- Buttons in no category are unused.
 --------------------------------------------------
 
 local DEFAULT_LAYOUT = {
@@ -485,7 +477,7 @@ local DEFAULT_LAYOUT = {
       gaps  = { housing = true } },
 }
 
--- Just the game's own Game Menu. What a new install starts with
+-- The game's own Game Menu. New installs start with it
 local ORIGINAL_LAYOUT = {
     { name = "Game Menu", fixed = true,
       items = { "options", "shop", "addons", "editmode", "support", "macros",
@@ -493,8 +485,7 @@ local ORIGINAL_LAYOUT = {
       gaps  = { addons = true, logout = true, close = true } },
 }
 
--- The layouts the settings page can load The game's main windows, a separator and the volume and latency widgets in a
--- second column
+-- Game Menu basics, the player's windows, a separator, volume and latency
 local COMPACT_LAYOUT = {
     { name = "Game Menu", fixed = true,
       items = { "options", "addons", "editmode", "macros", "logout", "exit" },
@@ -506,7 +497,7 @@ local COMPACT_LAYOUT = {
 
 local LAYOUTS = { default = DEFAULT_LAYOUT, original = ORIGINAL_LAYOUT, compact = COMPACT_LAYOUT }
 
--- Load Layout lists them in this order
+-- the Layouts list shows them in this order
 local LAYOUT_ORDER = {
     { name = "default", label = "Default" },
     { name = "original", label = "Original" },
@@ -532,8 +523,7 @@ function ns.DefaultLayout(template)
     return layout
 end
 
---- Switches on the buttons `template` places, except its `off` ones, and switches the rest off. Custom buttons keep
---- theirs.
+--- Switches on the buttons in `template` except its `off` ones, the rest off. Custom buttons keep theirs.
 ---@param template table
 local function SetButtonsFrom(template)
     local on = {}
@@ -575,8 +565,7 @@ local function InLayout(layout, key)
     return false
 end
 
---- Puts `key`, a button this layout has never had, where DEFAULT_LAYOUT has it: into the saved category of the same
---- name, after the button it follows by default; otherwise it stays unused
+--- Puts `key`, new to this layout, where DEFAULT_LAYOUT has it: same category, after the same button. Else unused.
 ---@param layout table
 ---@param key string
 local function PlaceNewButton(layout, key)
@@ -602,9 +591,8 @@ local function PlaceNewButton(layout, key)
     end
 end
 
---- Repairs AlniMenuDB.layout so the menu can trust it: makes one if missing, drops buttons this version does not know
---- or that appear twice, places buttons added since the layout was saved (AlniMenuDB.known lists the ones it has seen),
---- and puts the buttons that must always be there back into the first category if they went missing.
+--- Repairs AlniMenuDB.layout: makes one if missing, drops unknown and repeated keys, places new buttons
+--- (AlniMenuDB.known lists the ones seen) and fixes the Game Menu category.
 function ns.CheckLayout()
     local layout = AlniMenuDB.layout
     if type(layout) ~= "table" or #layout == 0 then
@@ -632,14 +620,14 @@ function ns.CheckLayout()
         category.items = items
     end
 
-    -- layouts saved before AlniMenuDB.known existed: what they have is known
+    -- old layouts: everything in them is known
     if type(AlniMenuDB.known) ~= "table" then
         AlniMenuDB.known = {}
         for key in pairs(placed) do
             AlniMenuDB.known[key] = true
         end
     end
-    -- in DEFAULT_LAYOUT's order, so each new button finds the one it follows already placed
+    -- DEFAULT_LAYOUT's order, so each new button finds the one before it
     local order, seen = {}, {}
     for _, default in ipairs(DEFAULT_LAYOUT) do
         for _, key in ipairs(default.items) do
@@ -659,8 +647,7 @@ function ns.CheckLayout()
         AlniMenuDB.known[key] = true
     end
 
-    -- exactly one Game Menu category: the one marked, else the one named so, else the one with Blizzard Menu, else the
-    -- first
+    -- exactly one Game Menu category: marked, named so, holding Blizzard Menu, or the first
     local fixed
     for _, category in ipairs(layout) do
         if not fixed and category.fixed then
@@ -699,6 +686,22 @@ function ns.CheckLayout()
         end
     end
 
+    -- forget keys no longer known, like widgets whose addon is off (saved layouts keep them)
+    for _, saved in ipairs({ AlniMenuDB.buttons, AlniMenuDB.labels, AlniMenuDB.known, AlniMenuDB.widgetSettings }) do
+        if type(saved) == "table" then
+            for key in pairs(saved) do
+                if not ENTRIES[key] then
+                    saved[key] = nil
+                end
+            end
+        end
+    end
+    for key in pairs(AlniMenuDB.instances or {}) do
+        if not ENTRIES[key] then
+            AlniMenuDB.instances[key] = nil
+        end
+    end
+
     -- unused buttons are off
     if type(AlniMenuDB.buttons) == "table" then
         for key, entry in pairs(ENTRIES) do
@@ -733,8 +736,7 @@ for key, entry in pairs(ENTRIES) do
     entry.key = key
 end
 
---- What `key`'s button says: the player's own name for it if they renamed it (AlniMenuDB.labels; not custom buttons,
---- whose label is part of them), otherwise its own label
+--- What `key`'s button says: the player's name for it (not for custom buttons), or its own
 ---@param key string
 ---@return string
 function ns.Label(key)
@@ -754,8 +756,8 @@ end
 --------------------------------------------------
 -- Custom buttons
 --
--- AlniMenuDB.custom[id] = { text = label, macro = macro text }, made in edit mode (Custom.lua). Each is the catalog
--- entry "custom<id>": a secure button running the macro, like Log Out runs /logout.
+-- AlniMenuDB.custom[id] = { text, macro }, from edit mode (Custom.lua). Each is the entry "custom<id>", a secure button
+-- running the macro.
 --------------------------------------------------
 
 function ns.CustomKey(id)
@@ -776,7 +778,7 @@ function ns.AddCustomEntry(id)
     return key, entry
 end
 
---- Catalog entries for every saved custom button; before the layout is checked, so it keeps them
+--- Entries for every saved custom button, before the layout check
 function ns.LoadCustomEntries()
     for id in pairs(AlniMenuDB.custom) do
         ns.AddCustomEntry(id)
@@ -804,11 +806,10 @@ end
 
 local menu
 
--- The debug view (the bug icon, only with DEBUG on in Core.lua): every button, every marker a button can show, and what
--- each button is
+-- debug view (the bug icon): every button and marker, and what each button does
 local debugView = false
 
---- A widget's row: the size of a button, with a label, filled in by the widget's `create`. Nil if `create` fails.
+--- A widget's row: button sized, with a label, filled in by the widget's `create`. Nil if `create` fails.
 ---@param entry table
 ---@param action table
 ---@return Frame?
@@ -818,6 +819,9 @@ local function CreateWidgetRow(entry, action)
     row:SetSize(BUTTON_W, def.height or BUTTON_H)
     row.action = action
     row.lib = ns.Lib
+    -- saved for the widget, per row
+    AlniMenuDB.widgetSettings[entry.key] = AlniMenuDB.widgetSettings[entry.key] or {}
+    row.settings = AlniMenuDB.widgetSettings[entry.key]
     row.label = row:CreateFontString(nil, "ARTWORK", "GameFontNormal")
     row.label:SetPoint("CENTER")
 
@@ -895,8 +899,7 @@ local function CreateMenuButton(entry)
     return b
 end
 
---- Makes the button for catalog entry `key` if the menu is built and it has none yet, or brings a custom button's label
---- and macro up to date. Out of combat only: the buttons are secure.
+--- Makes `key`'s button if missing, or updates a custom button's label and macro. Out of combat only.
 ---@param key string
 function ns.RefreshEntryButton(key)
     local entry = ENTRIES[key]
@@ -941,8 +944,7 @@ function ns.RemoveEntry(key)
     ENTRIES[key] = nil
 end
 
---- Shows the mark entry.badge asks for on its button, made the way the Game Menu makes them (GameMenuFrame.xml), or
---- hides it
+--- Shows or hides the mark entry.badge asks for, made like the Game Menu's
 ---@param entry table
 local function UpdateBadge(entry)
     local b = entry.button
@@ -950,7 +952,7 @@ local function UpdateBadge(entry)
     if entry.badge then
         badge, reason = entry.badge()
     end
-    -- and whatever else a micro button it clicks shows its dot for
+    -- or the dot of a micro button it clicks
     local micro = b.action.click
     if not badge and micro and micro.NotificationOverlay and micro.NotificationOverlay:IsShown() then
         badge = "alert"
@@ -958,7 +960,7 @@ local function UpdateBadge(entry)
     b.alertText = badge == "alert" and reason or nil
 
     if debugView then
-        -- what the button is and does, and what it would mark itself with
+        -- what the button is and does
         local action = b.action
         local how = action.click and ("clicks " .. (action.click:GetName() or "a Blizzard button"))
             or action.macro and ("runs " .. action.macro:gsub("\n", " / "))
@@ -972,7 +974,7 @@ local function UpdateBadge(entry)
             "marker now: " .. (badge or "none") .. (reason and (" (" .. reason .. ")") or ""),
         }
         b.debugText = table.concat(lines, "\n")
-        -- show the marker it can have: its own kind, or the alert dot for a micro button's dot
+        -- show every marker it can have
         local canMark = entry.badge or (micro and micro.NotificationOverlay)
         if canMark and not badge then
             badge = entry.badgeKind or "alert"
@@ -1000,9 +1002,7 @@ local function UpdateBadge(entry)
     end
 end
 
---- Whether the button for `key` shows right now: made, switched on, and its `shown` check (if any) passing. Not whether
---- a micro button it clicks is enabled: Blizzard disables them all while the Game Menu or the Settings panel is open,
---- and AlniMenu opens at the moment the Game Menu shows. They are enabled again by the time a button is clicked.
+--- Whether `key`'s button shows now: made, switched on and its `shown` check passing
 ---@param key string
 ---@return boolean
 local function IsShown(key)
@@ -1019,17 +1019,14 @@ end
 --------------------------------------------------
 -- Edit mode
 --
--- The gear in the corner switches the menu into edit mode: every button this client has shows, switched on or not, each
--- covered by a bar of controls (the bar also keeps clicks from reaching the button, so nothing runs while editing).
--- Column headings become name boxes, an Unused column lists the buttons in no category, and a row along the bottom adds
--- a category, resets the layout or finishes. Every change is saved to AlniMenuDB at once.
+-- The gear switches the menu to edit mode: every button shows under a bar of controls, headings become name boxes,
+-- Unused lists the rest and the footer adds things. Changes are kept only with Done.
 --------------------------------------------------
 
 local editing = false
 local Layout, HasShownIn   -- below; the edit controls lay the menu out again
 
--- Edit mode changes AlniMenuDB as it goes. This is how it was when edit mode started (or when a layout was loaded from
--- the settings), put back unless edit mode ends with Done.
+-- AlniMenuDB as edit mode started, put back unless it ends with Done
 local saved
 local refreshButtons = false   -- buttons to bring up to date out of combat
 
@@ -1070,7 +1067,7 @@ local function Discard()
     if ns.HideCustomWindow then
         ns.HideCustomWindow()
     end
-    -- custom buttons made while editing go; deleted ones come back
+    -- custom buttons made while editing go, deleted ones come back
     for key, entry in pairs(ENTRIES) do
         if entry.custom and not saved.custom[entry.custom] then
             ns.RemoveEntry(key)
@@ -1110,6 +1107,18 @@ local ICON = {
     edit   = "Interface\\Buttons\\UI-GuildButton-PublicNote-Up",
 }
 
+--- A tooltip for control `b` that is greyed out while `b` is disabled
+---@param b Button
+---@param text string
+function ns.ControlTooltip(b, text)
+    ns.Lib:AddTooltip(b, function()
+        if b:IsEnabled() then
+            return text
+        end
+        return "|cff808080" .. text .. "|r"
+    end)
+end
+
 --- A small icon button with a tooltip
 ---@param parent Frame
 ---@param icon string
@@ -1123,7 +1132,25 @@ local function IconButton(parent, icon, size, tooltip, onClick)
     b:SetNormalTexture(icon)
     b:SetHighlightTexture("Interface\\Buttons\\ButtonHilight-Square", "ADD")
     b:SetScript("OnClick", onClick)
-    ns.Lib:AddTooltip(b, tooltip)
+    ns.ControlTooltip(b, tooltip)
+    return b
+end
+
+--- A small text button with a tooltip
+---@param parent Frame
+---@param text string
+---@param tooltip string
+---@param onClick function
+---@return Button
+local function TextButton(parent, text, tooltip, onClick)
+    local b = CreateFrame("Button", nil, parent)
+    b:SetNormalFontObject("GameFontNormalSmall")
+    b:SetHighlightFontObject("GameFontHighlightSmall")
+    b:SetText(text)
+    b:SetSize(b:GetFontString():GetStringWidth() + 8, 18)
+    b:SetHighlightTexture("Interface\\Buttons\\UI-Common-MouseHilight", "ADD")
+    b:SetScript("OnClick", onClick)
+    ns.ControlTooltip(b, tooltip)
     return b
 end
 
@@ -1170,32 +1197,19 @@ local function MoveVertical(key, delta)
     Changed()
 end
 
---- Moves `key` to the next column left (-1) or right (+1); right of the last category is Unused
+--- Moves `key` a column left (-1) or right (+1), between categories
 ---@param key string
 ---@param delta integer
 local function MoveColumn(key, delta)
     local layout = AlniMenuDB.layout
     local i, j = Find(key)
-    local from = i or (#layout + 1)
-    local to = from + delta
-    if to < 1 or to > #layout + 1 then
+    local to = i and i + delta
+    if not to or to < 1 or to > #layout then
         return
     end
-    if to > #layout and (ENTRIES[key].always or ENTRIES[key].widget) then  -- must stay in the menu
-        return
-    end
-
-    if i then
-        table.remove(layout[i].items, j)
-        layout[i].gaps[key] = nil
-    end
-    if to <= #layout then
-        table.insert(layout[to].items, key)
-    end
-    -- unused buttons are off; out of Unused, on
-    if not i or to > #layout then
-        AlniMenuDB.buttons[key] = to <= #layout
-    end
+    table.remove(layout[i].items, j)
+    layout[i].gaps[key] = nil
+    table.insert(layout[to].items, key)
     Changed()
 end
 
@@ -1219,7 +1233,7 @@ local function MoveCategory(i, delta)
     Changed()
 end
 
---- Deletes category `i`; its buttons become unused, except the ones that must stay, which go to the first category left
+--- Deletes category `i`. Its buttons become unused, ones that must stay go to Game Menu.
 ---@param i integer
 local function DeleteCategory(i)
     local layout = AlniMenuDB.layout
@@ -1254,27 +1268,30 @@ local function AddCategory()
     Changed()
 end
 
---- Puts widget `key` at the end of the Game Menu category, switched on
+--- Puts button or widget `key` at the end of category `i` (default: Game Menu), switched on
 ---@param key string
-local function AddWidget(key)
-    table.insert(GameMenuCategory().items, key)
+---@param i integer?
+local function AddToCategory(key, i)
+    local category = i and AlniMenuDB.layout[i] or GameMenuCategory()
+    table.insert(category.items, key)
     AlniMenuDB.buttons[key] = true
     Changed()
 end
 
---- Adds a new instance of `multiple` widget `key` at the end of the Game Menu category
+--- Adds a new instance of `multiple` widget `key` to category `i`
 ---@param key string
-local function AddInstance(key)
+---@param i integer?
+local function AddInstance(key, i)
     local entryKey = NewInstance(key)
     ns.RefreshEntryButton(entryKey)
     if ENTRIES[entryKey] and ENTRIES[entryKey].button then
-        AddWidget(entryKey)
+        AddToCategory(entryKey, i)
     end
 end
 
---- Takes widget `key` out of the menu; Add Widget offers it again. An instance of a `multiple` widget is deleted.
+--- Takes `key` out of the menu. The + on a category offers it again; an instance of a `multiple` widget is deleted.
 ---@param key string
-local function RemoveWidget(key)
+local function RemoveFromMenu(key)
     local entry = ENTRIES[key]
     if entry and entry.instance then
         AlniMenuDB.instances[key] = nil
@@ -1293,32 +1310,78 @@ local function RemoveWidget(key)
     Changed()
 end
 
---- The Add Widget list: the widgets not in the menu yet, and the ones that can be added any number of times
+-- How the + lists group the buttons, whatever the layout. Buttons in none go under Other
+local ADD_GROUPS = {
+    { items = { "options", "shop", "addons", "editmode", "support", "macros", "reload", "logout", "exit", "blizzard",
+                "close" } },
+    { name = "Character", items = { "character", "reputation", "currency", "spellbook", "talents", "professions",
+                                    "profession1", "profession2", "cooking", "achievements" } },
+    { name = "Adventure", items = { "questlog", "adventure", "travelerslog", "calendar", "housing" } },
+    { name = "Social", items = { "guild", "groupfinder", "pvp" } },
+    { name = "Collections", items = { "mounts", "appearances" } },
+}
+
+--- The + on category `i`: the buttons and widgets not in the menu, and a new custom button
 ---@param owner Frame
-local function ShowWidgetMenu(owner)
-    local choices = {}
+---@param i integer
+local function ShowAddMenu(owner, i)
+    if not (MenuUtil and MenuUtil.CreateContextMenu) then
+        return
+    end
+    -- buttons under their ADD_GROUPS group
+    local home = {}
+    local groups, order = {}, {}
+    local function Group(name)
+        if not groups[name] then
+            groups[name] = {}
+            table.insert(order, name)
+        end
+        return groups[name]
+    end
+    for _, group in ipairs(ADD_GROUPS) do
+        local name = group.name or GAME_MENU_NAME
+        Group(name)
+        for _, key in ipairs(group.items) do
+            home[key] = name
+        end
+    end
+    for _, key in ipairs(ns.UnusedKeys()) do
+        if ENTRIES[key].button then
+            table.insert(Group(ENTRIES[key].custom and "Your buttons" or home[key] or "Other"), key)
+        end
+    end
+
+    local widgets = {}
     for _, key in ipairs(WIDGETS) do
         local def = WIDGET_DEFS[key]
         if def.multiple then
-            table.insert(choices, { text = def.text, add = function() AddInstance(key) end })
+            table.insert(widgets, { text = def.text, add = function() AddInstance(key, i) end })
         elseif ENTRIES[key].button and not Find(key) then
-            table.insert(choices, { text = ns.Label(key), add = function() AddWidget(key) end })
+            table.insert(widgets, { text = ns.Label(key), add = function() AddToCategory(key, i) end })
         end
     end
-    if not (MenuUtil and MenuUtil.CreateContextMenu) then
-        if choices[1] then
-            choices[1].add()
-        end
-        return
-    end
+
     MenuUtil.CreateContextMenu(owner, function(_, root)
-        for _, choice in ipairs(choices) do
-            root:CreateButton(choice.text, choice.add)
+        for _, name in ipairs(order) do
+            if #groups[name] > 0 then
+                local sub = root:CreateButton(name)
+                for _, key in ipairs(groups[name]) do
+                    sub:CreateButton(ns.Label(key), function() AddToCategory(key, i) end)
+                end
+            end
         end
+        if #widgets > 0 then
+            local sub = root:CreateButton("Widget")
+            for _, widget in ipairs(widgets) do
+                sub:CreateButton(widget.text, widget.add)
+            end
+        end
+        root:CreateDivider()
+        root:CreateButton("New custom button...", function() ns.EditCustomButton(nil, i) end)
     end)
 end
 
---- Load Layout: the layouts the settings page offers too, after asking
+--- The Layouts list: load a built-in or saved layout, or save this one
 ---@param owner Frame
 local function ShowLayoutMenu(owner)
     local function Ask(label, data)
@@ -1342,6 +1405,8 @@ local function ShowLayoutMenu(owner)
                 StaticPopup_Show("ALNIMENU_DELETE_LAYOUT", name, nil, name)
             end)
         end
+        root:CreateDivider()
+        root:CreateButton("Save current layout...", function() StaticPopup_Show("ALNIMENU_SAVE_LAYOUT") end)
     end)
 end
 
@@ -1372,7 +1437,7 @@ local function EditBar(key)
             AlniMenuDB.buttons[key] = self:GetChecked() and true or false
             Changed()
         end)
-        ns.Lib:AddTooltip(bar.check, "Show in the menu")
+        ns.ControlTooltip(bar.check, "Show in the menu")
     end
 
     -- right to left
@@ -1388,10 +1453,9 @@ local function EditBar(key)
         function() ToggleGap(key) end)
     bar.gap:SetPoint("RIGHT", bar.up, "LEFT", -4, 0)
 
-    -- custom buttons: edit or delete; widgets: remove; the others: rename
-    if entry.widget then
-        bar.edit = IconButton(bar, ICON.delete, 16, "Remove this widget", function() RemoveWidget(key) end)
-    else
+    -- custom buttons: edit, others: rename (widgets: neither)
+    local leftmost = bar.gap
+    if not entry.widget then
         bar.edit = IconButton(bar, ICON.edit, 16,
             entry.custom and "Edit or delete this button" or "Rename this button",
             function()
@@ -1401,27 +1465,23 @@ local function EditBar(key)
                     ns.RenameButton(key)
                 end
             end)
+        bar.edit:SetPoint("RIGHT", leftmost, "LEFT", -4, 0)
+        leftmost = bar.edit
     end
-    bar.edit:SetPoint("RIGHT", bar.gap, "LEFT", -4, 0)
-    local leftmost = bar.edit
-    if entry.custom then
-        bar.delete = IconButton(bar, ICON.delete, 16, "Delete this button", function() ns.DeleteCustomButton(key) end)
-        bar.delete:SetPoint("RIGHT", bar.edit, "LEFT", -4, 0)
-        leftmost = bar.delete
+    if not entry.always then
+        bar.remove = IconButton(bar, ICON.delete, 16, "Remove from the menu", function() RemoveFromMenu(key) end)
+        bar.remove:SetPoint("RIGHT", leftmost, "LEFT", -4, 0)
+        leftmost = bar.remove
     end
 
-    -- small, to fit beside the controls; the full name in a tooltip when it is cut off with "..."
+    -- small, full name in the tooltip
     bar.label = bar:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     bar.label:SetPoint("LEFT", 32, 0)
     bar.label:SetPoint("RIGHT", leftmost, "LEFT", -4, 0)
     bar.label:SetJustifyH("LEFT")
     bar.label:SetWordWrap(false)
     bar.label:SetText(ns.Label(key))
-    ns.Lib:AddTooltip(bar, function()
-        if bar.label:IsTruncated() then
-            return ns.Label(key)
-        end
-    end)
+    ns.Lib:AddTooltip(bar, function() return ns.Label(key) end)
 
     entry.editBar = bar
     return bar
@@ -1438,25 +1498,24 @@ local function UpdateEditBar(key, column, index, count, unused)
     local bar = EditBar(key)
     local layout = AlniMenuDB.layout
     local enabled = ns.IsEnabled(key)
+    bar.label:SetTextColor(enabled and 1 or 0.5, enabled and 1 or 0.5, enabled and 1 or 0.5)
 
     if bar.check then
         bar.check:SetChecked(enabled and not unused)
         SetUsable(bar.check, not unused)
     end
-    bar.label:SetTextColor(enabled and 1 or 0.5, enabled and 1 or 0.5, enabled and 1 or 0.5)
     bar.label:SetText(ns.Label(key))
     SetUsable(bar.up, not unused and index > 1)
     SetUsable(bar.down, not unused and index < count)
     SetUsable(bar.left, column > 1)
-    SetUsable(bar.right, not unused and not (column == #layout and (entry.always or entry.widget)))
+    SetUsable(bar.right, not unused and column < #layout)
     bar.gap:SetShown(not unused)
     local gap = not unused and layout[column].gaps[key]
     bar.gap:SetNormalTexture(gap and ICON.nogap or ICON.gap)
     bar:Show()
 end
 
---- The heading over edit column `i`: a name box and column controls for a category, a plain label for Unused. Made on
---- first use.
+--- The heading over edit column `i`, made on first use
 ---@param i integer
 ---@return Frame
 local function EditHeading(i)
@@ -1473,10 +1532,10 @@ local function EditHeading(i)
     head.show:SetSize(24, 24)
     head.show:SetPoint("LEFT", 0, 0)
     head.show:SetScript("OnClick", function(self) SetCategoryShown(head.index, self:GetChecked()) end)
-    ns.Lib:AddTooltip(head.show, "Show in the menu")
+    ns.ControlTooltip(head.show, "Show in the menu")
 
     head.name = ns.Lib:CreateEditBox(head, {
-        width          = EDIT_W - 100,
+        width          = EDIT_W - 156,
         maxLetters     = 32,
         onEnterPressed = function(text)
             local category = AlniMenuDB.layout[head.index]
@@ -1496,7 +1555,7 @@ local function EditHeading(i)
         end
     end)
 
-    head.delete = IconButton(head, ICON.delete, 16, "Delete this category (its buttons become unused)",
+    head.delete = IconButton(head, ICON.delete, 16, "Delete this category (its buttons leave the menu)",
         function() DeleteCategory(head.index) end)
     head.delete:SetPoint("RIGHT", -4, 0)
     head.right = IconButton(head, ICON.right, 18, "Move this column right",
@@ -1505,6 +1564,8 @@ local function EditHeading(i)
     head.left = IconButton(head, ICON.left, 18, "Move this column left",
         function() MoveCategory(head.index, -1) end)
     head.left:SetPoint("RIGHT", head.right, "LEFT", 0, 0)
+    head.add = TextButton(head, "+ Add", "Add to this category", function() ShowAddMenu(head.add, head.index) end)
+    head.add:SetPoint("RIGHT", head.left, "LEFT", -4, 0)
 
     head.label = head:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     head.label:SetPoint("CENTER")
@@ -1517,69 +1578,39 @@ local function EditHeading(i)
     return head
 end
 
--- The row along the bottom in edit mode, made on first use Along the bottom in edit mode: adding things on the left,
--- then loading a layout and leaving edit mode on the right
-local FOOTER_W = 120
-local FOOTER_MIN = 7 * FOOTER_W + 4 * 8 + 2 * 24   -- the narrowest it fits in
+-- Along the bottom in edit mode: layouts on the left, leaving edit mode on the right
+local FOOTER_MIN = 90 + 8 + 2 * 80 + 8   -- the narrowest it fits in
 
 local function EditFooter()
     if menu.editFooter then
         return menu.editFooter
     end
     local footer = CreateFrame("Frame", nil, menu)
-    footer:SetSize(FOOTER_MIN, 24)
+    footer:SetHeight(24)
 
-    local addButton = ns.Lib:CreateButton(footer, {
-        text        = "Add Button",
-        width       = FOOTER_W,
-        onClick     = function() ns.EditCustomButton(nil) end,
-        tooltip     = "Add Button",
-        tooltipText = "A button of your own that runs a macro.",
+    local layouts
+    layouts = ns.Lib:CreateButton(footer, {
+        text        = "Layouts",
+        width       = 90,
+        onClick     = function() ShowLayoutMenu(layouts) end,
+        tooltip     = "Layouts",
+        tooltipText = "Load Default, Original, Compact or one you saved, or save this one.",
     })
-    addButton:SetPoint("LEFT")
-    local addWidget
-    addWidget = ns.Lib:CreateButton(footer, {
-        text        = "Add Widget",
-        width       = FOOTER_W,
-        onClick     = function() ShowWidgetMenu(addWidget) end,
-        tooltip     = "Add Widget",
-        tooltipText = "Something other than a button, like a volume slider.",
-    })
-    addWidget:SetPoint("LEFT", addButton, "RIGHT", 8, 0)
-    local add = ns.Lib:CreateButton(footer, { text = "Add Category", width = FOOTER_W, onClick = AddCategory })
-    add:SetPoint("LEFT", addWidget, "RIGHT", 8, 0)
-
+    layouts:SetPoint("LEFT")
     local done = ns.Lib:CreateButton(footer, {
         text    = "Done",
-        width   = FOOTER_W,
+        width   = 80,
         onClick = function() ns.SetEditing(false, true) end,
     })
     done:SetPoint("RIGHT")
     local cancel = ns.Lib:CreateButton(footer, {
         text        = CANCEL or "Cancel",
-        width       = FOOTER_W,
+        width       = 80,
         onClick     = function() ns.SetEditing(false) end,
         tooltip     = CANCEL or "Cancel",
         tooltipText = "Leaves edit mode without saving the changes.",
     })
     cancel:SetPoint("RIGHT", done, "LEFT", -8, 0)
-    local load
-    load = ns.Lib:CreateButton(footer, {
-        text        = "Load Layout",
-        width       = FOOTER_W,
-        onClick     = function() ShowLayoutMenu(load) end,
-        tooltip     = "Load Layout",
-        tooltipText = "Default, Original, Compact or one you saved. Replaces your layout.",
-    })
-    load:SetPoint("RIGHT", cancel, "LEFT", -24, 0)
-    local save = ns.Lib:CreateButton(footer, {
-        text        = "Save Layout",
-        width       = FOOTER_W,
-        onClick     = function() StaticPopup_Show("ALNIMENU_SAVE_LAYOUT") end,
-        tooltip     = "Save Layout",
-        tooltipText = "Saves the layout as it is now, to load from Load Layout.",
-    })
-    save:SetPoint("RIGHT", load, "LEFT", -8, 0)
 
     menu.editFooter = footer
     return footer
@@ -1589,8 +1620,7 @@ end
 -- Laying it out
 --------------------------------------------------
 
---- Places `keys` from `top` down at `x`, with a gap above those in `gaps` (unless nothing shows above them yet).
---- `visible(key)` decides which show. Returns the keys placed and how far down they reach.
+--- Places `keys` down from `top` at `x`, with gaps. Returns the keys placed and the bottom.
 ---@param keys string[]
 ---@param gaps table
 ---@param visible function
@@ -1635,9 +1665,8 @@ local function Exists(key)
     return ENTRIES[key].button ~= nil
 end
 
---- Normal mode: one column per category with something to show, each under its name when there is more than one. Edit
---- mode: every category, then Unused, all with their controls. Fits the window to them. Out of combat only: some
---- buttons are secure.
+--- Lays out the columns and fits the window. Normal mode: categories with something to show. Edit mode: all, plus
+--- Unused. Out of combat only.
 function DoLayout()
     if not menu then
         return
@@ -1686,8 +1715,8 @@ function DoLayout()
             table.insert(columns, { category = category, index = i })
         end
     end
-    if showAll then
-        -- Unused in as many columns as it takes to be no taller than the tallest category
+    if debugView and not editing then
+        -- Unused wraps into columns no taller than the tallest category
         local rows = MIN_UNUSED_ROWS
         for _, column in ipairs(columns) do
             local n = 0
@@ -1718,6 +1747,21 @@ function DoLayout()
         until #unused == 0
     end
 
+    if debugView and not editing then
+        -- one of each widget not in the layout, and a preview (never saved) of the `multiple` ones
+        local items = {}
+        for _, key in ipairs(WIDGETS) do
+            if WIDGET_DEFS[key].multiple then
+                WidgetEntry(key, WIDGET_DEFS[key])
+                ns.RefreshEntryButton(key)
+            end
+            if ENTRIES[key] and ENTRIES[key].button and not Find(key) then
+                table.insert(items, key)
+            end
+        end
+        table.insert(columns, { widgets = true, items = items })
+    end
+
     local headed = showAll or #columns > 1
     local headingH = editing and 32 or HEADING_H
     local top    = -TOP - (headed and headingH or 0)
@@ -1726,8 +1770,8 @@ function DoLayout()
     local columnW = editing and EDIT_W or BUTTON_W
     for c, column in ipairs(columns) do
         local x = SIDE + (c - 1) * (columnW + COLUMN_GAP)
-        local keys = column.unused and column.items or column.category.items
-        local gaps = column.unused and {} or column.category.gaps
+        local keys = column.items or column.category.items
+        local gaps = column.category and column.category.gaps or {}
 
         if editing then
             local head = EditHeading(c)
@@ -1740,6 +1784,7 @@ function DoLayout()
             head.fixedName:SetShown(fixed and true or false)
             head.left:SetShown(not column.unused)
             head.right:SetShown(not column.unused)
+            head.add:SetShown(not column.unused)
             head.delete:SetShown(not column.unused and not fixed)
             head.label:SetShown(column.unused and true or false)
             if column.unused then
@@ -1766,7 +1811,11 @@ function DoLayout()
                 heading = menu:CreateFontString(nil, "OVERLAY", "GameFontNormal")
                 menu.headings[c] = heading
             end
-            heading:SetText(column.unused and (column.first and "Unused" or "") or column.category.name)
+            if column.widgets then
+                heading:SetText("Widgets")
+            else
+                heading:SetText(column.unused and (column.first and "Unused" or "") or column.category.name)
+            end
             heading:ClearAllPoints()
             heading:SetPoint("BOTTOM", menu, "TOPLEFT", x + BUTTON_W / 2, top + 4)
             heading:Show()
@@ -1789,8 +1838,7 @@ function DoLayout()
         bottom = math.min(bottom, y)
     end
 
-    -- a close X by the gear when there is no Return to Game to click, and always while editing. Basic has a slot for it
-    -- in its corner, so there it always shows. In Basic and Panel it goes where AlnUI puts its own
+    -- close X: when there's no Return to Game, while editing, and always in Basic (it has a slot for it)
     local theme = menu:GetTheme()
     local cornerX = theme == "basic" or theme == "panel"
     local showX = theme == "basic" or editing or not hasReturn
@@ -1801,9 +1849,12 @@ function DoLayout()
     else
         menu.closeX:SetPoint("TOPRIGHT", -6, -6)
     end
-    -- the Blizzard Menu button by the gear, the same way: when the menu has no Blizzard Menu to click, and always while
-    -- editing
+    -- Blizzard Menu button: when the menu has none, and while editing
     menu.blizz:SetShown(editing or not hasBlizzard)
+    if menu.bug then
+        menu.bug:ClearAllPoints()
+        menu.bug:SetPoint("RIGHT", menu.blizz:IsShown() and menu.blizz or menu.gear, "LEFT", -4, 0)
+    end
     menu.gear:ClearAllPoints()
     if showX then
         menu.gear:SetPoint("RIGHT", menu.closeX, "LEFT", -2, 0)
@@ -1815,6 +1866,19 @@ function DoLayout()
     end
 
     local width = 2 * SIDE + #columns * columnW + (#columns - 1) * COLUMN_GAP
+    -- a + after the last heading for a new category
+    if editing then
+        if not menu.newCategory then
+            menu.newCategory = IconButton(menu, ICON.gap, 16, "New category", AddCategory)
+            menu.newCategory:SetFrameLevel(menu:GetFrameLevel() + 20)
+        end
+        menu.newCategory:ClearAllPoints()
+        menu.newCategory:SetPoint("LEFT", menu, "TOPLEFT", width - SIDE + 6, top + 17)
+        menu.newCategory:Show()
+        width = width + 26
+    elseif menu.newCategory then
+        menu.newCategory:Hide()
+    end
     if editing then
         local footer = EditFooter()
         width = math.max(width, FOOTER_MIN + 2 * SIDE)
@@ -1827,8 +1891,7 @@ function DoLayout()
     menu:SetSize(width, -bottom + BOTTOM)
 end
 
---- DoLayout, saying in chat if it fails: WoW hides Lua errors unless scriptErrors is on, and a half-done layout leaves
---- buttons where they were before
+--- DoLayout, printing errors to chat (WoW hides them unless scriptErrors is on)
 function Layout()
     local ok, err = xpcall(DoLayout, function(e)
         return tostring(e) .. (debugstack and ("\n" .. debugstack(2, 4, 0)) or "")
@@ -1914,13 +1977,12 @@ local function BuildMenu()
 
     -- the debug view's switch, only while debugging (DEBUG in Core.lua)
     if ns.DEBUG then
-        local bug = IconButton(menu, "Interface\\HelpFrAame\\HelpIcon-Bug", 22,
+        local bug = IconButton(menu, "Interface\\HelpFrame\\HelpIcon-Bug", 22,
             "Debug view: every button and every marker", function()
                 debugView = not debugView
                 Layout()
             end)
-        -- top-left corner, mirroring the gear (same center distance from the edges)
-        bug:SetPoint("TOPLEFT", 11, -11)
+        -- placed by Layout, left of the other corner buttons
         bug:SetFrameLevel(menu:GetFrameLevel() + 20)
         menu.bug = bug
     end
@@ -1971,7 +2033,7 @@ function ns.HideMenu()
     return true
 end
 
---- Turns edit mode on or off, opening the menu if needed Turning it off saves the changes only with `save` (Done)
+--- Turns edit mode on or off. Off keeps the changes only with `save` (Done).
 ---@param on boolean
 ---@param save boolean?
 function ns.SetEditing(on, save)
@@ -2007,15 +2069,14 @@ function ns.ApplyTheme()
     end
 end
 
---- Lays the open menu out again, after a setting changes
+--- Lays the open menu out again
 function ns.ApplyLayout()
     if menu and menu:IsShown() and not InCombatLockdown() then
         Layout()
     end
 end
 
--- Saved layouts: AlniMenuDB.layouts = { { name, layout, buttons } }, from Save Layout in edit mode. `buttons` is which
--- of the buttons in the layout were switched on.
+-- Saved layouts: AlniMenuDB.layouts = { { name, layout, buttons } }, from the Layouts list. `buttons`: which were on.
 
 local function FindSaved(name)
     for i, saved in ipairs(AlniMenuDB.layouts) do
@@ -2048,7 +2109,7 @@ function ns.DeleteLayout(name)
     end
 end
 
---- Puts a saved layout in place. Its widget instances (separators...) come back as new ones
+--- Puts a saved layout in place. Its separators come back as new ones.
 ---@param saved table
 local function UseSaved(saved)
     local layout = Copy(saved.layout)
@@ -2080,8 +2141,7 @@ local function UseSaved(saved)
     end
 end
 
---- Replaces the layout with one of LAYOUTS (`data.name`: "default", "original") or a saved one (`data.saved`: its
---- name). In edit mode it is kept only with Done.
+--- Loads a built-in layout (`data.name`) or a saved one (`data.saved`). In edit mode, kept only with Done.
 ---@param data table
 function ns.LoadLayout(data)
     if InCombatLockdown() then
@@ -2097,7 +2157,7 @@ function ns.LoadLayout(data)
     elseif LAYOUTS[data.name] then
         AlniMenuDB.layout = ns.DefaultLayout(LAYOUTS[data.name])
         SetButtonsFrom(LAYOUTS[data.name])
-        -- widgets that can be added more than once (separators) get a new instance each
+        -- separators get a new instance each
         for _, category in ipairs(AlniMenuDB.layout) do
             for j, key in ipairs(category.items) do
                 if WIDGET_DEFS[key] and WIDGET_DEFS[key].multiple then
@@ -2114,7 +2174,7 @@ function ns.LoadLayout(data)
         return
     end
     ns.CheckLayout()
-    -- separators made for it now have a button
+    -- separators made for it need a button
     if menu then
         for key in pairs(ENTRIES) do
             ns.RefreshEntryButton(key)

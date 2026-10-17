@@ -11,14 +11,15 @@ Use the gear to show, hide and move buttons, or add your own macro buttons. In c
 
 ## Adding a widget
 
-Other addons can add widgets to the menu. A small addon with a clock:
+Other addons can add widgets to the menu. A small addon with a clock, a simpler version of AlniMenu's own (`AlniMenu/Plugins/Clock.lua` also has a date tooltip and opens the game's clock window on click):
 
 `MyClock.toc`
 
 ```
-## Interface: 120100
+## Interface: 120105
 ## Title: My Clock
-## OptionalDeps: AlniMenu
+## Notes: A clock widget for AlniMenu.
+## Dependencies: AlniMenu
 
 MyClock.lua
 ```
@@ -50,12 +51,20 @@ AlniMenu.RegisterWidget("MyClock_Clock", {
 })
 ```
 
-It then shows up in Add Widget in edit mode.
+It then shows up under Widget, in the + on each category in edit mode. If your addon does more than add a widget, use `## OptionalDeps: AlniMenu` instead.
 
-- `text` - the name in Add Widget and in the menu
-- `create(row)` - builds the widget in its row. `row.label` is a centered text, `row.lib` is AlnUI
+- `text` - the name in the + list and in the menu
+- `create(row)` - builds the widget in its row. `row.label` is a centered text, `row.lib` is AlnUI, `row.settings`
+  is a table saved for the widget
 - `update(row)` - shows `row.name` (the name, or what the player renamed it to) in `row.label`
 - `height` - row height outside edit mode, if it isn't a button's
 - `multiple` - can be added more than once, like separators
+- `shown()` - whether it shows right now (hide it when it does not apply)
 
-Use a key only your addon uses. AlniMenu's own widgets are in `AlniMenu/Plugins.lua`.
+`AlniMenu.HideMenu()` closes the menu, for widgets that open another window.
+
+Use a key only your addon uses. AlniMenu's own widgets are in `AlniMenu/Plugins/`, one file each.
+
+## Total RP 3
+
+With Total RP 3 installed, its toolbar is also a widget. Total RP 3 is not needed otherwise.

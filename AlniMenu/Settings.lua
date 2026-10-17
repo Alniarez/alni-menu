@@ -3,7 +3,7 @@
 
 local ADDON_NAME, ns = ...
 
--- Every theme, including Basic and Panel, which are built around a close button corner the menu does not fill yet.
+-- every theme
 local THEME_DESCRIPTIONS = {
     basic    = "A metal window frame with a title bar.",
     gold     = "A gold dialog border with a title banner.",
@@ -54,7 +54,7 @@ loader:SetScript("OnEvent", function(self, _, name)
         ns.ApplyTheme()
     end)
 
-    -- which buttons show, and in which category, is edited on the menu itself (the gear in its corner)
+    -- buttons and categories are edited on the menu itself
     SettingsPanel:GetLayout(category):AddInitializer(CreateSettingsButtonInitializer(
         "Buttons and categories", "Edit Layout",
         function() ns.SetEditing(true) end,
