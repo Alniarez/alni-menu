@@ -63,6 +63,12 @@ loader:SetScript("OnEvent", function(self, _, name)
         true))
 
     SettingsPanel:GetLayout(category):AddInitializer(CreateSettingsButtonInitializer(
+        "Custom buttons", "Manage",
+        function() ns.ShowCustomList() end,
+        "Every custom button, in the menu or not, to edit or delete.",
+        true))
+
+    SettingsPanel:GetLayout(category):AddInitializer(CreateSettingsButtonInitializer(
         "Erase all data", "Erase",
         function() StaticPopup_Show("ALNIMENU_ERASE_DATA") end,
         "Back to a new install: the Original layout, no custom buttons or saved layouts. Reloads the UI.",

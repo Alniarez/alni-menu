@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.5
+
+- Export and import layouts
+- Rename and overwriting saved layouts
+- Custom buttons list in the settings
+
 ## 0.1.4
 
 - New widgets

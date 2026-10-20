@@ -79,6 +79,7 @@ local function InitLayout()
     end
     -- which button goes in which category
     ns.CheckLayout()
+    ns.FixSavedLayouts()
     ns.ready = true
 end
 

@@ -1401,12 +1401,17 @@ local function ShowLayoutMenu(owner)
             local name = saved.name
             local sub = root:CreateButton(name)
             sub:CreateButton("Load", function() Ask(name, { saved = name }) end)
+            sub:CreateButton("Rename", function() StaticPopup_Show("ALNIMENU_RENAME_LAYOUT", name, nil, name) end)
             sub:CreateButton(DELETE or "Delete", function()
                 StaticPopup_Show("ALNIMENU_DELETE_LAYOUT", name, nil, name)
             end)
         end
         root:CreateDivider()
         root:CreateButton("Save current layout...", function() StaticPopup_Show("ALNIMENU_SAVE_LAYOUT") end)
+        if ns.CanShareLayouts and ns.CanShareLayouts() then
+            root:CreateButton("Export this layout...", ns.ExportLayout)
+            root:CreateButton("Import a layout...", ns.ImportLayout)
+        end
     end)
 end
 
@@ -2086,6 +2091,46 @@ local function FindSaved(name)
     end
 end
 
+--- Gives saved layouts that share a name (old or hand-edited data) their own: "Name 2", "Name 3"...
+function ns.FixSavedLayouts()
+    local taken = {}
+    for _, saved in ipairs(AlniMenuDB.layouts) do
+        saved.name = type(saved.name) == "string" and saved.name ~= "" and saved.name or "Layout"
+        taken[saved.name] = (taken[saved.name] or 0) + 1
+    end
+    local used = {}
+    for _, saved in ipairs(AlniMenuDB.layouts) do
+        if used[saved.name] then
+            local n, name = 2, saved.name
+            while taken[name .. " " .. n] or used[name .. " " .. n] do
+                n = n + 1
+            end
+            saved.name = name .. " " .. n
+        end
+        used[saved.name] = true
+    end
+end
+
+--- Adds `saved` ({ name, layout, buttons }) to the saved layouts, replacing one with the same name
+---@param saved table
+function ns.StoreLayout(saved)
+    local i = FindSaved(saved.name)
+    if i then
+        AlniMenuDB.layouts[i] = saved
+    else
+        table.insert(AlniMenuDB.layouts, saved)
+    end
+end
+
+--- Whether there is a saved layout called `name`
+---@param name string
+---@return boolean
+function ns.HasSavedLayout(name)
+    return FindSaved(name) ~= nil
+end
+
+--- Saves the current layout as `name`
+---@param name string
 function ns.SaveLayout(name)
     local buttons = {}
     for _, category in ipairs(AlniMenuDB.layout) do
@@ -2093,13 +2138,7 @@ function ns.SaveLayout(name)
             buttons[key] = ns.IsEnabled(key)
         end
     end
-    local data = { name = name, layout = Copy(AlniMenuDB.layout), buttons = buttons }
-    local i = FindSaved(name)
-    if i then
-        AlniMenuDB.layouts[i] = data
-    else
-        table.insert(AlniMenuDB.layouts, data)
-    end
+    ns.StoreLayout({ name = name, layout = Copy(AlniMenuDB.layout), buttons = buttons })
 end
 
 function ns.DeleteLayout(name)
@@ -2206,10 +2245,87 @@ StaticPopupDialogs.ALNIMENU_DELETE_LAYOUT = {
 local function SaveFromPopup(popup)
     local box = popup.GetEditBox and popup:GetEditBox() or popup.editBox
     local name = strtrim(box:GetText())
-    if name ~= "" then
+    if name == "" then
+        return
+    end
+    if FindSaved(name) then
+        StaticPopup_Show("ALNIMENU_REPLACE_LAYOUT", name, nil, name)
+    else
         ns.SaveLayout(name)
     end
 end
+
+StaticPopupDialogs.ALNIMENU_REPLACE_LAYOUT = {
+    text         = "Replace the saved layout %s?",
+    button1      = "Replace",
+    button2      = CANCEL or "Cancel",
+    OnAccept     = function(_, name) ns.SaveLayout(name) end,
+    timeout      = 0,
+    whileDead    = true,
+    hideOnEscape = true,
+}
+
+--- Renames saved layout `old` to `new`. Not to an empty name or one already taken.
+---@param old string
+---@param new string
+function ns.RenameLayout(old, new)
+    new = strtrim(new or "")
+    local _, saved = FindSaved(old)
+    if not saved or new == old then
+        return
+    end
+    if new == "" then
+        return
+    end
+    if FindSaved(new) then
+        print("|cff33ff99" .. ADDON_NAME .. ":|r there is already a layout called \"" .. new .. "\".")
+        return
+    end
+    saved.name = new
+end
+
+--- The edit box of a popup
+---@param popup Frame
+---@return EditBox
+local function PopupBox(popup)
+    return popup.GetEditBox and popup:GetEditBox() or popup.editBox
+end
+
+--- Enables a popup's first button only while its box has a name in it
+---@param popup Frame
+local function NeedName(popup)
+    local button = popup.GetButton1 and popup:GetButton1() or popup.button1
+    if button then
+        button:SetEnabled(strtrim(PopupBox(popup):GetText()) ~= "")
+    end
+end
+
+StaticPopupDialogs.ALNIMENU_RENAME_LAYOUT = {
+    text                   = "Rename %s to:",
+    button1                = "Rename",
+    button2                = CANCEL or "Cancel",
+    hasEditBox             = true,
+    maxLetters             = 32,
+    OnShow                 = function(self, old)
+        PopupBox(self):SetText(old)
+        PopupBox(self):HighlightText()
+        NeedName(self)
+    end,
+    OnAccept               = function(self, old) ns.RenameLayout(old, PopupBox(self):GetText()) end,
+    EditBoxOnTextChanged   = function(self) NeedName(self:GetParent()) end,
+    EditBoxOnEnterPressed  = function(self)
+        local popup = self:GetParent()
+        if strtrim(self:GetText()) == "" then
+            return
+        end
+        ns.RenameLayout(popup.data, self:GetText())
+        popup:Hide()
+    end,
+    EditBoxOnEscapePressed = function(self) self:GetParent():Hide() end,
+    timeout                = 0,
+    whileDead              = true,
+    hideOnEscape           = true,
+}
 
 StaticPopupDialogs.ALNIMENU_SAVE_LAYOUT = {
     text                   = "Save the current layout as:",
@@ -2217,9 +2333,14 @@ StaticPopupDialogs.ALNIMENU_SAVE_LAYOUT = {
     button2                = CANCEL or "Cancel",
     hasEditBox             = true,
     maxLetters             = 32,
+    OnShow                 = function(self) NeedName(self) end,
     OnAccept               = SaveFromPopup,
+    EditBoxOnTextChanged   = function(self) NeedName(self:GetParent()) end,
     EditBoxOnEnterPressed  = function(self)
         local popup = self:GetParent()
+        if strtrim(self:GetText()) == "" then
+            return
+        end
         SaveFromPopup(popup)
         popup:Hide()
     end,

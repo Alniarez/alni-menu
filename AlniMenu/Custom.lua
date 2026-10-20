@@ -129,6 +129,7 @@ local function Save()
     ns.RefreshEntryButton(key)
     window:Hide()
     ns.ApplyLayout()
+    ns.RefreshCustomList()
 end
 
 --- Deletes custom button `key`
@@ -145,6 +146,7 @@ function ns.DeleteCustomButton(key)
         window:Hide()
     end
     ns.ApplyLayout()
+    ns.RefreshCustomList()
 end
 
 local function Delete()
@@ -318,4 +320,114 @@ function ns.EditCustomButton(key, category)
 
     window:Show()
     window.label:SetFocus()
+end
+
+-- The list of custom buttons ------------------------------
+
+local list
+
+StaticPopupDialogs.ALNIMENU_DELETE_CUSTOM = {
+    text         = "Delete the custom button %s?",
+    button1      = DELETE or "Delete",
+    button2      = CANCEL or "Cancel",
+    OnAccept     = function(_, key) ns.DeleteCustomButton(key) end,
+    timeout      = 0,
+    whileDead    = true,
+    hideOnEscape = true,
+}
+
+--- One row of the list: label, where it is, its macro, and Edit and Delete
+---@param i integer
+---@return Frame
+local function ListRow(i)
+    local row = list.rows[i]
+    if row then
+        return row
+    end
+    local Lib = ns.Lib
+    row = CreateFrame("Frame", nil, list.content)
+    row:SetWidth(390)
+    row.label = Lib:CreateLabel(row, { font = "GameFontNormal", width = 250, wordWrap = false })
+    row.label:SetPoint("TOPLEFT")
+    row.where = Lib:CreateLabel(row, { font = "GameFontDisableSmall", width = 250, wordWrap = false })
+    row.where:SetPoint("TOPLEFT", row.label, "BOTTOMLEFT", 0, -2)
+    row.macro = Lib:CreateLabel(row, { font = "GameFontHighlightSmall", width = 380 })
+    row.macro:SetPoint("TOPLEFT", row.where, "BOTTOMLEFT", 0, -4)
+    row.delete = Lib:CreateButton(row, {
+        text = DELETE or "Delete", width = 64, height = 20,
+        onClick = function() StaticPopup_Show("ALNIMENU_DELETE_CUSTOM", ns.Label(row.key), nil, row.key) end,
+    })
+    row.delete:SetPoint("TOPRIGHT")
+    row.edit = Lib:CreateButton(row, {
+        text = EDIT or "Edit", width = 64, height = 20,
+        onClick = function() ns.EditCustomButton(row.key) end,
+    })
+    row.edit:SetPoint("RIGHT", row.delete, "LEFT", -4, 0)
+    list.rows[i] = row
+    return row
+end
+
+--- Fills the list with every custom button, if it is open
+function ns.RefreshCustomList()
+    if not (list and list:IsShown()) then
+        return
+    end
+    local keys = {}
+    for key, entry in pairs(ns.ENTRIES) do
+        if entry.custom then
+            table.insert(keys, key)
+        end
+    end
+    table.sort(keys, function(a, b) return ns.Label(a) < ns.Label(b) end)
+    list.empty:SetShown(#keys == 0)
+
+    local y = 0
+    for i, key in ipairs(keys) do
+        local row = ListRow(i)
+        local index = CategoryOf(key)
+        row.key = key
+        row.label:SetText(ns.Label(key))
+        row.where:SetText(index > 0 and AlniMenuDB.layout[index].name or "Not in the menu")
+        row.macro:SetText(AlniMenuDB.custom[ns.ENTRIES[key].custom].macro)
+        local height = row.label:GetStringHeight() + row.where:GetStringHeight() + row.macro:GetStringHeight() + 18
+        row:SetHeight(height)
+        row:ClearAllPoints()
+        row:SetPoint("TOPLEFT", 0, -y)
+        row:Show()
+        y = y + height
+    end
+    for i = #keys + 1, #list.rows do
+        list.rows[i]:Hide()
+    end
+    list.content:SetHeight(math.max(y, 1))
+end
+
+--- Opens the list of custom buttons (from the settings page)
+function ns.ShowCustomList()
+    if not list then
+        local Lib = ns.Lib
+        list = Lib:CreateDialog({
+            name   = "AlniMenuCustomListFrame",
+            title  = "Custom Buttons",
+            width  = 460,
+            height = 400,
+            theme  = AlniMenuDB.theme,
+            strata = "FULLSCREEN_DIALOG",
+        })
+        local _, content = Lib:CreateScrollFrame(list, { x1 = 24, y1 = -54, x2 = -44, y2 = 56, contentWidth = 390 })
+        list.content = content
+        list.rows = {}
+        list.empty = Lib:CreateLabel(list, {
+            text = "No custom buttons yet.", width = 412, justify = "CENTER",
+        })
+        list.empty:SetPoint("TOP", 0, -80)
+        list.new = Lib:CreateButton(list, {
+            text = "New Button", width = 120, onClick = function() ns.EditCustomButton(nil) end,
+        })
+        list.new:SetPoint("BOTTOMLEFT", 24, 22)
+        table.insert(UISpecialFrames, "AlniMenuCustomListFrame")
+    end
+    list:SetTheme(AlniMenuDB.theme)
+    list:Show()
+    ns.RefreshCustomList()
 end
