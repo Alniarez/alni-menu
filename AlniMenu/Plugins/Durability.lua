@@ -47,7 +47,13 @@ AlniMenu.RegisterWidget("durability", {
             row:RegisterEvent("UPDATE_INVENTORY_DURABILITY")
         end)
         row:SetScript("OnHide", function() row:UnregisterAllEvents() end)
-        row:SetScript("OnEvent", function() row:SetText(row.name) end)
+        row:SetScript("OnEvent", function()
+            row:SetText(row.name)
+            -- and the tooltip, if it is showing
+            if GameTooltip:IsOwned(row) then
+                row:GetScript("OnEnter")(row)
+            end
+        end)
         row.lib:AddTooltip(row, function()
             local _, damaged = Durability()
             if #damaged == 0 then

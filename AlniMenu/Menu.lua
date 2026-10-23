@@ -573,7 +573,7 @@ local function PlaceNewButton(layout, key)
         for j, k in ipairs(default.items) do
             if k == key then
                 for _, category in ipairs(layout) do
-                    if category.name == default.name then
+                    if (default.fixed and category.fixed) or category.name == default.name then
                         local at = #category.items + 1
                         local before = default.items[j - 1]
                         for n, existing in ipairs(category.items) do
@@ -595,6 +595,14 @@ end
 --- (AlniMenuDB.known lists the ones seen) and fixes the Game Menu category.
 function ns.CheckLayout()
     local layout = AlniMenuDB.layout
+    -- damaged saved data: drop anything that isn't a category
+    if type(layout) == "table" then
+        for i = #layout, 1, -1 do
+            if type(layout[i]) ~= "table" then
+                table.remove(layout, i)
+            end
+        end
+    end
     if type(layout) ~= "table" or #layout == 0 then
         AlniMenuDB.layout = ns.DefaultLayout(ORIGINAL_LAYOUT)
         SetButtonsFrom(ORIGINAL_LAYOUT)
@@ -950,7 +958,10 @@ local function UpdateBadge(entry)
     local b = entry.button
     local badge, reason
     if entry.badge then
-        badge, reason = entry.badge()
+        local ok, b1, b2 = pcall(entry.badge)
+        if ok then
+            badge, reason = b1, b2
+        end
     end
     -- or the dot of a micro button it clicks
     local micro = b.action.click
@@ -1010,8 +1021,9 @@ local function IsShown(key)
     if not (entry.button and ns.IsEnabled(key)) then
         return false
     end
-    if entry.shown and not entry.shown() then
-        return false
+    if entry.shown then
+        local ok, shown = pcall(entry.shown)
+        return ok and shown and true or false
     end
     return true
 end
@@ -1019,8 +1031,8 @@ end
 --------------------------------------------------
 -- Edit mode
 --
--- The gear switches the menu to edit mode: every button shows under a bar of controls, headings become name boxes,
--- Unused lists the rest and the footer adds things. Changes are kept only with Done.
+-- The gear switches the menu to edit mode: every button shows under a bar of controls, headings become name boxes, "+
+-- Add" adds buttons and widgets and the footer has the layouts. Changes are kept only with Done.
 --------------------------------------------------
 
 local editing = false
@@ -1047,9 +1059,9 @@ local function Snapshot()
         buttons    = Copy(AlniMenuDB.buttons),
         labels     = Copy(AlniMenuDB.labels),
         custom     = Copy(AlniMenuDB.custom),
-        nextCustom = AlniMenuDB.nextCustom,
-        instances    = Copy(AlniMenuDB.instances),
-        nextInstance = AlniMenuDB.nextInstance,
+        instances  = Copy(AlniMenuDB.instances),
+        known      = Copy(AlniMenuDB.known),
+        widgetSettings = Copy(AlniMenuDB.widgetSettings),
     }
 end
 
@@ -1067,6 +1079,17 @@ local function Discard()
     if ns.HideCustomWindow then
         ns.HideCustomWindow()
     end
+    -- custom buttons a saved layout uses stay (an import made while editing), even if made while editing
+    for _, layout in ipairs(AlniMenuDB.layouts) do
+        for _, category in ipairs(layout.layout or {}) do
+            for _, key in ipairs(category.items or {}) do
+                local entry = ENTRIES[key]
+                if entry and entry.custom and not saved.custom[entry.custom] then
+                    saved.custom[entry.custom] = AlniMenuDB.custom[entry.custom]
+                end
+            end
+        end
+    end
     -- custom buttons made while editing go, deleted ones come back
     for key, entry in pairs(ENTRIES) do
         if entry.custom and not saved.custom[entry.custom] then
@@ -1080,12 +1103,16 @@ local function Discard()
     AlniMenuDB.buttons    = saved.buttons
     AlniMenuDB.labels     = saved.labels
     AlniMenuDB.custom     = saved.custom
-    AlniMenuDB.nextCustom = saved.nextCustom
-    AlniMenuDB.instances    = saved.instances
-    AlniMenuDB.nextInstance = saved.nextInstance
+    AlniMenuDB.instances  = saved.instances
+    AlniMenuDB.known      = saved.known
+    AlniMenuDB.widgetSettings = saved.widgetSettings
+    -- nextCustom and nextInstance only grow, so an id is never given to two buttons
     saved = nil
     ns.LoadCustomEntries()
     ns.LoadInstances()
+    if ns.RefreshCustomList then
+        ns.RefreshCustomList()
+    end
     -- secure buttons: only out of combat
     if InCombatLockdown() then
         refreshButtons = true
@@ -1176,8 +1203,29 @@ local function Find(key)
     end
 end
 
+--- Whether Esc closes the menu. Not in edit mode: Esc on one of its windows would close the menu too, and with it the
+--- unsaved edits.
+---@param on boolean
+local function EscCloses(on)
+    for i = #UISpecialFrames, 1, -1 do
+        if UISpecialFrames[i] == "AlniMenuFrame" then
+            table.remove(UISpecialFrames, i)
+        end
+    end
+    if on then
+        table.insert(UISpecialFrames, "AlniMenuFrame")
+    end
+end
+
 local function Changed()
     Layout()
+    -- the custom button windows show categories and where each button is
+    if ns.RefreshCustomWindow then
+        ns.RefreshCustomWindow()
+    end
+    if ns.RefreshCustomList then
+        ns.RefreshCustomList()
+    end
 end
 
 --- Moves `key` up (-1) or down (+1) in its column
@@ -1189,7 +1237,11 @@ local function MoveVertical(key, delta)
         return
     end
     local items = AlniMenuDB.layout[i].items
+    -- the next one that shows in edit mode
     local to = j + delta
+    while items[to] and not (ENTRIES[items[to]] and ENTRIES[items[to]].button) do
+        to = to + delta
+    end
     if to < 1 or to > #items then
         return
     end
@@ -1543,6 +1595,9 @@ local function EditHeading(i)
         width          = EDIT_W - 156,
         maxLetters     = 32,
         onEnterPressed = function(text)
+            if not editing then
+                return
+            end
             local category = AlniMenuDB.layout[head.index]
             if category and not category.fixed and text ~= "" then
                 category.name = text
@@ -1553,6 +1608,9 @@ local function EditHeading(i)
     head.name:SetPoint("LEFT", 30, 0)
     -- leaving the box keeps what was typed, like pressing Enter
     head.name:HookScript("OnEditFocusLost", function(self)
+        if not editing then
+            return
+        end
         local category = AlniMenuDB.layout[head.index]
         if category and not category.fixed and self:GetText() ~= "" and self:GetText() ~= category.name then
             category.name = self:GetText()
@@ -1870,7 +1928,8 @@ function DoLayout()
         menu.gear:SetPoint("TOPRIGHT", -12, -12)
     end
 
-    local width = 2 * SIDE + #columns * columnW + (#columns - 1) * COLUMN_GAP
+    -- never narrower than one column, even with nothing to show
+    local width = 2 * SIDE + math.max(#columns, 1) * columnW + math.max(#columns - 1, 0) * COLUMN_GAP
     -- a + after the last heading for a new category
     if editing then
         if not menu.newCategory then
@@ -1996,11 +2055,13 @@ local function BuildMenu()
     menu:HookScript("OnHide", function()
         if editing then
             editing = false
+            EscCloses(true)
+            StaticPopup_Hide("ALNIMENU_LOAD_LAYOUT")
             Discard()
         end
     end)
 
-    -- Esc closes it, like any addon window
+    -- Esc closes it, like any addon window (not in edit mode, see EscCloses)
     table.insert(UISpecialFrames, "AlniMenuFrame")
 end
 
@@ -2049,6 +2110,11 @@ function ns.SetEditing(on, save)
         Snapshot()
     end
     if not on and editing then
+        -- a category name still being typed goes in first (and is undone with the rest on Cancel)
+        for _, head in ipairs(menu and menu.editHeadings or {}) do
+            head.name:ClearFocus()
+        end
+        StaticPopup_Hide("ALNIMENU_LOAD_LAYOUT")
         if save then
             saved = nil
         else
@@ -2056,6 +2122,7 @@ function ns.SetEditing(on, save)
         end
     end
     editing = on and true or false
+    EscCloses(not editing)
     if not (menu and menu:IsShown()) then
         ns.ShowMenu()
     else
@@ -2093,6 +2160,13 @@ end
 
 --- Gives saved layouts that share a name (old or hand-edited data) their own: "Name 2", "Name 3"...
 function ns.FixSavedLayouts()
+    -- damaged saved data: drop anything that isn't a saved layout
+    for i = #AlniMenuDB.layouts, 1, -1 do
+        local saved = AlniMenuDB.layouts[i]
+        if type(saved) ~= "table" or type(saved.layout) ~= "table" then
+            table.remove(AlniMenuDB.layouts, i)
+        end
+    end
     local taken = {}
     for _, saved in ipairs(AlniMenuDB.layouts) do
         saved.name = type(saved.name) == "string" and saved.name ~= "" and saved.name or "Layout"
@@ -2185,6 +2259,10 @@ end
 function ns.LoadLayout(data)
     if InCombatLockdown() then
         print("|cff33ff99" .. ADDON_NAME .. ":|r not in combat.")
+        return
+    end
+    -- only from edit mode, so Cancel can undo it
+    if not editing then
         return
     end
     if data.saved then

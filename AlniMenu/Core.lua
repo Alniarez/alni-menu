@@ -95,11 +95,13 @@ local function HookEscape()
             DebugPrint("Game Menu allowed once")
             return
         end
-        if InCombatLockdown() or IsShiftKeyDown() then
+        -- the Game Menu stays if AlniMenu can't open (also before it is ready)
+        if InCombatLockdown() or IsShiftKeyDown() or not ns.ready then
             return
         end
-        HideUIPanel(GameMenuFrame)
-        ns.ShowMenu()
+        if ns.ShowMenu() then
+            HideUIPanel(GameMenuFrame)
+        end
     end)
 end
 

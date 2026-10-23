@@ -8,8 +8,10 @@ local E = C_EncodingUtil
 local PREFIX = "AlniMenu1:"   -- format version 1
 local MAX_TEXT = 20000
 local MAX_CATEGORIES, MAX_ITEMS = 20, 100
--- macro commands that run code, change settings or press other buttons
-local RISKY = { "/run", "/script", "/console", "/click" }
+-- macro commands that run code, change settings or press other buttons, with every name the game has for them
+-- (translated ones too), added by Risky
+local RISKY = { "/run", "/script", "/console", "/click", "/dump", "/tinspect" }
+local RISKY_SLASH = { "SCRIPT", "CONSOLE", "CLICK", "DUMP", "TABLEINSPECT" }
 
 --- Whether this client can export and import layouts
 ---@return boolean
@@ -42,11 +44,26 @@ end
 --- `value` if it is a string, cut to `max`
 ---@param value any
 ---@param max integer
+---@param allowEmpty boolean? an empty string is kept (else nil)
 ---@return string?
-local function Text(value, max)
-    if type(value) == "string" then
-        return value:sub(1, max)
+local function Text(value, max, allowEmpty)
+    if type(value) ~= "string" then
+        return nil
     end
+    -- whole characters only, never half of a UTF-8 one
+    local out, count = {}, 0
+    for char in value:gmatch("[%z\1-\127\194-\244][\128-\191]*") do
+        count = count + 1
+        if count > max then
+            break
+        end
+        out[count] = char
+    end
+    local text = table.concat(out)
+    if strtrim(text) == "" and not allowEmpty then
+        return nil
+    end
+    return text
 end
 
 --- A layout from imported data, with only known fields of the right types, or nil
@@ -86,12 +103,16 @@ local function Clean(data)
             end
         end
     end
+    -- only custom buttons the layout uses
     if type(data.custom) == "table" then
-        for key, custom in pairs(data.custom) do
-            if type(key) == "string" and type(custom) == "table" then
-                local text, macro = Text(custom.text, 40), Text(custom.macro, 255)
-                if text and macro then
-                    out.custom[key] = { text = text, macro = macro }
+        for _, category in ipairs(out.layout) do
+            for _, key in ipairs(category.items) do
+                local custom = key:match("^custom%d+$") and data.custom[key]
+                if type(custom) == "table" and not out.custom[key] then
+                    local text, macro = Text(custom.text, 40), Text(custom.macro, 255, true)
+                    if text and macro then
+                        out.custom[key] = { text = text, macro = macro }
+                    end
                 end
             end
         end
@@ -122,12 +143,22 @@ end
 ---@param macro string
 ---@return boolean
 local function Risky(macro)
-    for line in macro:lower():gmatch("[^\n]+") do
-        local command = strtrim(line):match("^(/%S+)")
-        for _, risky in ipairs(RISKY) do
-            if command == risky then
-                return true
+    local risky = {}
+    for _, command in ipairs(RISKY) do
+        risky[command] = true
+    end
+    for _, name in ipairs(RISKY_SLASH) do
+        for i = 1, 20 do
+            local command = _G["SLASH_" .. name .. i]
+            if type(command) == "string" then
+                risky[command:lower()] = true
             end
+        end
+    end
+    for line in macro:lower():gmatch("[^\r\n]+") do
+        local command = strtrim(line):match("^(/%S+)")
+        if command and risky[command] then
+            return true
         end
     end
     return false
@@ -299,9 +330,10 @@ local function ShowPreview(layout)
         local row = PreviewRow(i)
         row.key = key
         row.check:SetChecked(false)
-        row.check.label:SetText(custom.text)
+        -- shown as typed: no colours or icons from |c, |T...
+        row.check.label:SetText((custom.text:gsub("|", "||")))
         row.risky:SetShown(Risky(custom.macro))
-        row.macro:SetText(custom.macro)
+        row.macro:SetText((custom.macro:gsub("|", "||")))
         local height = 24 + row.macro:GetStringHeight() + 10
         row:SetHeight(height)
         row:ClearAllPoints()

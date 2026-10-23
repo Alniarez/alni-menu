@@ -19,7 +19,7 @@ local TEMPLATES = {
 local window
 local editingKey   -- the button being changed; nil for a new custom one
 local renaming     -- true: renaming a built-in button
-local newCategory  -- the category a new custom button goes in
+local newCategory  -- the category (table) a new custom button goes in
 
 local function Say(text)
     print("|cff33ff99" .. ADDON_NAME .. ":|r " .. text)
@@ -29,10 +29,22 @@ end
 ---@return table
 local function CategoryOptions()
     local options = {}
+    -- the category itself, not its place: categories can move or go while the window is open
     for i, category in ipairs(AlniMenuDB.layout) do
-        options[i] = { value = i, label = category.name }
+        options[i] = { value = category, label = category.name }
     end
     return options
+end
+
+--- Where `category` is in the layout now, or nil if it was deleted
+---@param category table?
+---@return integer?
+local function IndexOf(category)
+    for i, c in ipairs(AlniMenuDB.layout) do
+        if c == category then
+            return i
+        end
+    end
 end
 
 --- The index of the category holding `key`, or 0 when unused
@@ -112,10 +124,11 @@ local function Save()
         AlniMenuDB.buttons[key] = true
         AlniMenuDB.known[key] = true
     end
-    -- without a category picker, new buttons go in the first category
-    local index = window.category and window.category:GetValue()
+    -- without a category picked (or one deleted since), a button stays where it is and a new one goes in the category
+    -- it was added from, or the first
+    local index = IndexOf(window.category and window.category:GetValue())
     if index == nil then
-        index = editingKey and CategoryOf(key) or newCategory or 1
+        index = editingKey and CategoryOf(key) or IndexOf(newCategory) or 1
     end
     -- unused buttons are off; out of Unused (or new), on
     local from = editingKey and CategoryOf(key) or 0
@@ -136,7 +149,11 @@ end
 ---@param key string
 function ns.DeleteCustomButton(key)
     local entry = ns.ENTRIES[key]
-    if InCombatLockdown() or not (entry and entry.custom) then
+    if InCombatLockdown() then
+        Say("custom buttons can only be deleted out of combat.")
+        return
+    end
+    if not (entry and entry.custom) then
         return
     end
     ns.RemoveEntry(key)
@@ -262,6 +279,22 @@ local function SetMode(rename)
     window:SetTheme(AlniMenuDB.theme)
 end
 
+--- Brings an open custom button window up to date after the layout changed
+function ns.RefreshCustomWindow()
+    if not (window and window:IsShown()) or renaming then
+        return
+    end
+    if editingKey and not ns.ENTRIES[editingKey] then
+        window:Hide()
+        return
+    end
+    if window.category then
+        local selected = window.category:GetValue()
+        window.category:SetOptions(CategoryOptions())
+        window.category:SetValue(IndexOf(selected) and selected or nil)
+    end
+end
+
 function ns.HideCustomWindow()
     if window then
         window:Hide()
@@ -272,6 +305,7 @@ end
 ---@param key string
 function ns.RenameButton(key)
     if InCombatLockdown() then
+        Say("not in combat.")
         return
     end
     if not window then
@@ -294,13 +328,19 @@ end
 ---@param category integer? where a new one goes (default: the first category)
 function ns.EditCustomButton(key, category)
     if InCombatLockdown() then
+        Say("custom buttons can only be changed out of combat.")
+        return
+    end
+    -- from a list that is out of date: the button is gone
+    if key and not (ns.ENTRIES[key] and ns.ENTRIES[key].custom) then
+        ns.RefreshCustomList()
         return
     end
     if not window then
         BuildWindow()
     end
     editingKey = key
-    newCategory = category
+    newCategory = category and AlniMenuDB.layout[category]
     SetMode(false)
 
     local data = key and AlniMenuDB.custom[ns.ENTRIES[key].custom]
@@ -310,7 +350,11 @@ function ns.EditCustomButton(key, category)
         window.category:SetOptions(CategoryOptions())
         -- empty for a button not in the menu: saving keeps it out unless a category is picked
         local current = key and CategoryOf(key)
-        window.category:SetValue(current ~= 0 and current or (not key and (category or 1)) or nil)
+        if key then
+            window.category:SetValue(current ~= 0 and AlniMenuDB.layout[current] or nil)
+        else
+            window.category:SetValue(newCategory or AlniMenuDB.layout[1])
+        end
     end
     window.delete:SetShown(key ~= nil)
     if window.template then
@@ -355,7 +399,13 @@ local function ListRow(i)
     row.macro:SetPoint("TOPLEFT", row.where, "BOTTOMLEFT", 0, -4)
     row.delete = Lib:CreateButton(row, {
         text = DELETE or "Delete", width = 64, height = 20,
-        onClick = function() StaticPopup_Show("ALNIMENU_DELETE_CUSTOM", ns.Label(row.key), nil, row.key) end,
+        onClick = function()
+            if InCombatLockdown() then
+                Say("custom buttons can only be deleted out of combat.")
+                return
+            end
+            StaticPopup_Show("ALNIMENU_DELETE_CUSTOM", ns.Label(row.key), nil, row.key)
+        end,
     })
     row.delete:SetPoint("TOPRIGHT")
     row.edit = Lib:CreateButton(row, {

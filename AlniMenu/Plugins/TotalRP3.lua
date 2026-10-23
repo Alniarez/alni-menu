@@ -122,10 +122,19 @@ local function Register()
         text = "Total RP 3",
         create = function(row)
             row.icons = {}
-            -- TRP3 updates its icons every half second
+            -- TRP3 updates its icons every half second if TRP3 changes in a way this doesn't expect, stop after one
+            -- error instead of one every half second
+            local function SafeRefresh()
+                local ok, err = pcall(Refresh, row)
+                if not ok and row.ticker then
+                    row.ticker:Cancel()
+                    row.ticker = nil
+                    print("|cff33ff99AlniMenu:|r Total RP 3 widget: " .. tostring(err))
+                end
+            end
             row:SetScript("OnShow", function()
-                Refresh(row)
-                row.ticker = C_Timer.NewTicker(0.5, function() Refresh(row) end)
+                row.ticker = C_Timer.NewTicker(0.5, SafeRefresh)
+                SafeRefresh()
             end)
             row:SetScript("OnHide", function()
                 if row.ticker then

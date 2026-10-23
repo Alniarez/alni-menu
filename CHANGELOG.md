@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.6
+
+- General bugfixes
+
 ## 0.1.5
 
 - Export and import layouts

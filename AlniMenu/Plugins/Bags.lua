@@ -17,8 +17,12 @@ local REAGENT_BAG = Enum and Enum.BagIndex and Enum.BagIndex.ReagentBag
 local function BagSpace(first, last)
     local free, total = 0, 0
     for bag = first, last do
-        free = free + (GetFree(bag) or 0)
-        total = total + (GetSlots(bag) or 0)
+        -- normal bags only, as the game counts: profession bags (family other than 0) hold only their kind
+        local slots, family = GetFree(bag)
+        if not family or family == 0 or bag == REAGENT_BAG then
+            free = free + (slots or 0)
+            total = total + (GetSlots(bag) or 0)
+        end
     end
     return free, total
 end
@@ -43,7 +47,13 @@ AlniMenu.RegisterWidget("bagspace", {
             row:RegisterEvent("BAG_UPDATE_DELAYED")
         end)
         row:SetScript("OnHide", function() row:UnregisterAllEvents() end)
-        row:SetScript("OnEvent", function() row:SetText(row.name) end)
+        row:SetScript("OnEvent", function()
+            row:SetText(row.name)
+            -- and the tooltip, if it is showing
+            if GameTooltip:IsOwned(row) then
+                row:GetScript("OnEnter")(row)
+            end
+        end)
         row.lib:AddTooltip(row, function()
             local free, total = BagSpace(0, NUM_BAG_SLOTS or 4)
             local text = free .. " of " .. total .. " free"
