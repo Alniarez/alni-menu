@@ -11,7 +11,6 @@ local COLUMN_GAP         = 8    -- between columns
 local SECTION_GAP        = 12   -- between sections
 local HEADING_H          = 20   -- the category names over the columns
 local TOP, BOTTOM        = 40, 26
-local RELEASE            = "Beta"   -- shown after the version in the menu's corner; "" for none
 local SIDE               = 20
 local EDIT_W             = 260  -- columns in edit mode, room for the controls
 local MIN_UNUSED_ROWS    = 8    -- Unused wraps into more columns past this or the tallest category
@@ -2024,11 +2023,13 @@ local function BuildMenu()
     menu.blizz = blizz
 
     -- the version, bottom left
-    local getMetadata = C_AddOns and C_AddOns.GetAddOnMetadata or GetAddOnMetadata
-    local version = menu:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    version:SetPoint("BOTTOMLEFT", 14, 12)
-    version:SetText(strtrim((getMetadata(ADDON_NAME, "Version") or "") .. " " .. RELEASE))
-    menu.version = version
+    if ns.DEBUG then
+        local getMetadata = C_AddOns and C_AddOns.GetAddOnMetadata or GetAddOnMetadata
+        local version = menu:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+        version:SetPoint("BOTTOMLEFT", 14, 12)
+        version:SetText(getMetadata(ADDON_NAME, "Version") or "")
+        menu.version = version
+    end
 
     -- the close X, for when Return to Game is not in the menu
     local closeX = CreateFrame("Button", nil, menu, "UIPanelCloseButton")

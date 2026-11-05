@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.0
+
+- Release version
+
 ## 0.1.6
 
 - General bugfixes
