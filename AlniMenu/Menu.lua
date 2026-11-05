@@ -2071,8 +2071,8 @@ end
 --------------------------------------------------
 
 function ns.ShowMenu()
-    -- not before PLAYER_LOGIN, when the layout is ready
-    if InCombatLockdown() or not ns.ready then
+    -- not before PLAYER_LOGIN, when the layout is ready, and not in Blizzard's Edit Mode
+    if InCombatLockdown() or not ns.ready or ns.InBlizzardEditMode() then
         return false
     end
     if not menu then

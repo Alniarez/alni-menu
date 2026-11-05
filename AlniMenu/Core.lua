@@ -5,6 +5,7 @@
 --
 -- The Game Menu still opens:
 --   in combat       AlniMenu's secure buttons can't be shown then
+--   in Edit Mode    Blizzard's, so AlniMenu stays out of its way
 --   with Shift+Esc  always
 --   once allowed    from AlniMenu's Blizzard Menu button
 
@@ -29,6 +30,14 @@ local function DebugPrint(...)
 end
 ns.DebugPrint = DebugPrint
 ns.DEBUG = DEBUG
+
+--- Whether Blizzard's Edit Mode is on. AlniMenu does nothing then: Edit Mode's own Esc and target handling stay
+--- untouched.
+---@return boolean
+function ns.InBlizzardEditMode()
+    local frame = EditModeManagerFrame
+    return frame and frame.IsEditModeActive and frame:IsEditModeActive() or false
+end
 
 local DEFAULTS = {
     theme = "modern",   -- the Game Menu's own border
@@ -96,7 +105,7 @@ local function HookEscape()
             return
         end
         -- the Game Menu stays if AlniMenu can't open (also before it is ready)
-        if InCombatLockdown() or IsShiftKeyDown() or not ns.ready then
+        if InCombatLockdown() or IsShiftKeyDown() or not ns.ready or ns.InBlizzardEditMode() then
             return
         end
         if ns.ShowMenu() then

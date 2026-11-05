@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.1
+
+- Doesn't open while Blizzard's Edit Mode is on
+
 ## 1.0.0
 
 - Release version
