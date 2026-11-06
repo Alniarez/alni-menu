@@ -8,6 +8,8 @@
 --   in Edit Mode    Blizzard's, so AlniMenu stays out of its way
 --   with Shift+Esc  always
 --   once allowed    from AlniMenu's Blizzard Menu button
+--
+-- In AlniMenu's edit mode, Esc is Cancel.
 
 local ADDON_NAME, ns = ...
 
@@ -90,6 +92,7 @@ local function InitLayout()
     ns.CheckLayout()
     ns.FixSavedLayouts()
     ns.ready = true
+    DebugPrint("Ready")
 end
 
 --------------------------------------------------
@@ -108,6 +111,14 @@ local function HookEscape()
         if InCombatLockdown() or IsShiftKeyDown() or not ns.ready or ns.InBlizzardEditMode() then
             return
         end
+        -- in AlniMenu's edit mode Esc is Cancel. Esc closes any of its windows first: the Game Menu only opens when
+        -- there was none
+        if ns.IsEditing() then
+            DebugPrint("Esc in edit mode: Cancel")
+            ns.SetEditing(false)
+            HideUIPanel(GameMenuFrame)
+            return
+        end
         if ns.ShowMenu() then
             HideUIPanel(GameMenuFrame)
         end
@@ -122,18 +133,20 @@ local events = CreateFrame("Frame")
 events:RegisterEvent("ADDON_LOADED")
 events:RegisterEvent("PLAYER_LOGIN")
 events:RegisterEvent("PLAYER_REGEN_DISABLED")
--- say what Blizzard blocked, so it can move to a secure button
+-- dev only: say what Blizzard blocked, so it can move to a secure button
 events:RegisterEvent("ADDON_ACTION_FORBIDDEN")
 events:RegisterEvent("ADDON_ACTION_BLOCKED")
 events:SetScript("OnEvent", function(self, event, name, func)
     if (event == "ADDON_ACTION_FORBIDDEN" or event == "ADDON_ACTION_BLOCKED") then
         if name == ADDON_NAME then
-            print("|cff33ff99" .. ADDON_NAME .. ":|r " .. event .. ": " .. tostring(func))
+            DebugPrint(event .. ": " .. tostring(func))
         end
         return
     end
     if event == "ADDON_LOADED" and name == ADDON_NAME then
         self:UnregisterEvent("ADDON_LOADED")
+        local getMetadata = C_AddOns and C_AddOns.GetAddOnMetadata or GetAddOnMetadata
+        DebugPrint("Initializing " .. (getMetadata(ADDON_NAME, "Version") or "") .. "...")
         InitDB()
         HookEscape()
     elseif event == "PLAYER_LOGIN" then

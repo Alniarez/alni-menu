@@ -35,6 +35,25 @@ StaticPopupDialogs.ALNIMENU_ERASE_DATA = {
     showAlert    = true,
 }
 
+-- A settings button that shows up in the Settings search. Search words added
+-- by addon code (CreateSettingsButtonInitializer with addSearchTags) taint the
+-- search, and Blizzard then blocks the Discord row's IsUserOAuthed(). Backed
+-- by an unused setting, Blizzard adds the label as a search word itself.
+local unusedSettings = {}
+local function AddSearchableButton(category, variable, label, buttonText, onClick, tooltip)
+    local layout = SettingsPanel:GetLayout(category)
+    if not Settings.CreateSettingInitializer then
+        layout:AddInitializer(CreateSettingsButtonInitializer(label, buttonText, onClick, tooltip, false))
+        return
+    end
+    local setting = Settings.RegisterAddOnSetting(category, variable, variable, unusedSettings,
+        Settings.VarType.Boolean, label, false)
+    layout:AddInitializer(Settings.CreateSettingInitializer("SettingButtonControlTemplate", {
+        setting = setting, name = label, tooltip = tooltip,
+        buttonText = buttonText, buttonClick = onClick,
+    }))
+end
+
 local loader = CreateFrame("Frame")
 loader:RegisterEvent("ADDON_LOADED")
 loader:SetScript("OnEvent", function(self, _, name)
@@ -55,24 +74,18 @@ loader:SetScript("OnEvent", function(self, _, name)
     end)
 
     -- buttons and categories are edited on the menu itself
-    SettingsPanel:GetLayout(category):AddInitializer(CreateSettingsButtonInitializer(
-        "Buttons and categories", "Edit Layout",
+    AddSearchableButton(category, "ALNIMENU_EDIT_LAYOUT", "Buttons and categories", "Edit Layout",
         function() ns.SetEditing(true) end,
         "Opens the menu in edit mode: show or hide buttons, move them between categories, "
-        .. "and add, rename or reorder categories. The gear in the menu's corner does the same.",
-        true))
+        .. "and add, rename or reorder categories. The gear in the menu's corner does the same.")
 
-    SettingsPanel:GetLayout(category):AddInitializer(CreateSettingsButtonInitializer(
-        "Custom buttons", "Manage",
+    AddSearchableButton(category, "ALNIMENU_MANAGE_CUSTOM", "Custom buttons", "Manage",
         function() ns.ShowCustomList() end,
-        "Every custom button, in the menu or not, to edit or delete.",
-        true))
+        "Every custom button, in the menu or not, to edit or delete.")
 
-    SettingsPanel:GetLayout(category):AddInitializer(CreateSettingsButtonInitializer(
-        "Erase all data", "Erase",
+    AddSearchableButton(category, "ALNIMENU_ERASE", "Erase all data", "Erase",
         function() StaticPopup_Show("ALNIMENU_ERASE_DATA") end,
-        "Back to a new install: the Original layout, no custom buttons or saved layouts. Reloads the UI.",
-        true))
+        "Back to a new install: the Original layout, no custom buttons or saved layouts. Reloads the UI.")
 
     Settings.RegisterAddOnCategory(category)
 end)

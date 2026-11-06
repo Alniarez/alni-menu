@@ -1,0 +1,3 @@
+- Bug fixes
+- Profession buttons rework
+- Default layouts updated

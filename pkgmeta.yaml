@@ -1,0 +1,19 @@
+package-as: AlniMenu
+
+# the addon lives in a subfolder of the repo
+move-folders:
+  AlniMenu/AlniMenu: AlniMenu
+
+# repo files that aren't part of the addon
+ignore:
+  - README.md
+  - CHANGELOG.md
+  - WHATS_NEW.md
+  - pkgmeta.yaml
+  - publish.fish
+  - menu.png
+  - menu.xcf
+
+manual-changelog:
+  filename: WHATS_NEW.md
+  markup-type: markdown

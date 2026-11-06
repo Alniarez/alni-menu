@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.2
+
+- Bug fixes
+- Profession buttons rework
+- Default layouts updated
+
 ## 1.0.1
 
 - Doesn't try to open while Blizzard's Edit Mode is on

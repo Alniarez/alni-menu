@@ -74,6 +74,27 @@ local function OpenSettings()
     SettingsPanel:Open()
 end
 
+--- The Game Menu's own Options button. The Game Menu builds its buttons each time it opens, so this is nil until
+--- it has opened once. Clicked through a secure button, Settings opens untainted: opened from addon code, its
+--- Discord settings are blocked (ADDON_ACTION_FORBIDDEN: IsUserOAuthed()).
+---@return Button?
+local function GameMenuOptionsButton()
+    local pool = GameMenuFrame and GameMenuFrame.buttonPool
+    if not pool then
+        return nil
+    end
+    for button in pool:EnumerateActive() do
+        if button:GetText() == GAMEMENU_OPTIONS then
+            return button
+        end
+    end
+end
+
+--- Settings, through the Game Menu's Options button when it has one
+local function Options()
+    return { gameMenu = GameMenuOptionsButton, fallback = OpenSettings }
+end
+
 --- Blizzard's own menu, for anything AlniMenu doesn't offer
 local function ShowBlizzardMenu()
     ns.allowBlizzardMenu = true   -- AlniMenu steps aside this once
@@ -84,7 +105,31 @@ local function ShowBlizzardMenu()
     end
 end
 
---- Profession in slot `slot` of GetProfessions() (1, 2: main ones, 5: Cooking): its name and the spell that opens it.
+--- The spell a profession's button casts, from its spells as the Professions book lists them: the first that is
+--- learned and not passive, else the first one (what the book's first button casts). Its ID and name; nil when it
+--- has none.
+---@param offset integer spellbook offset, from GetProfessionInfo
+---@param numSpells integer
+---@return integer?, string?
+local function ProfessionSpell(offset, numSpells)
+    local bank = Enum.SpellBookSpellBank.Player
+    local first
+    for i = 1, numSpells or 0 do
+        local info = C_SpellBook.GetSpellBookItemInfo(offset + i, bank)
+        if info and info.spellID then
+            first = first or info
+            if not info.isPassive and info.itemType ~= Enum.SpellBookItemType.FutureSpell then
+                return info.spellID, info.name
+            end
+        end
+    end
+    if first then
+        return first.spellID, first.name
+    end
+end
+
+--- Profession in slot `slot` of GetProfessions() (1, 2: main ones, 3: Archaeology, or First Aid on Forever,
+--- 4: Fishing, 5: Cooking): its name, the spell that opens it, and that spell's name (e.g. Fishing Journal).
 --- Nil when there is none.
 ---@param slot integer
 ---@return function
@@ -97,13 +142,39 @@ local function Profession(slot)
         if not index then
             return nil
         end
-        local name, _, _, _, _, offset = GetProfessionInfo(index)
-        local info = C_SpellBook.GetSpellBookItemInfo(offset + 1, Enum.SpellBookSpellBank.Player)
-        if not (info and info.spellID) then
+        local name, _, _, _, numSpells, offset = GetProfessionInfo(index)
+        local spellID, spellName = ProfessionSpell(offset, numSpells)
+        if not spellID then
             return nil
         end
-        return name, info.spellID
+        return name, spellID, spellName
     end
+end
+
+--- Debug: what Profession(slot) sees, step by step - why a profession button shows or not
+---@param slot integer
+---@return string
+local function DescribeProfessionSlot(slot)
+    if not GetProfessions then
+        return "no GetProfessions API"
+    end
+    if not (C_SpellBook and C_SpellBook.GetSpellBookItemInfo) then
+        return "no C_SpellBook.GetSpellBookItemInfo API"
+    end
+    local index = select(slot, GetProfessions())
+    if not index then
+        return "GetProfessions() slot " .. slot .. " is empty (not learned)"
+    end
+    local name, _, rank, maxRank, numSpells, offset = GetProfessionInfo(index)
+    local spells = {}
+    for i = 1, numSpells or 0 do
+        local info = C_SpellBook.GetSpellBookItemInfo(offset + i, Enum.SpellBookSpellBank.Player)
+        table.insert(spells, info and ("%s %s%s"):format(tostring(info.spellID), tostring(info.name),
+            info.isPassive and " (passive)" or "") or "?")
+    end
+    return ("index %s: %s (%s/%s), spells: %s -> casts %s"):format(tostring(index), tostring(name), tostring(rank),
+        tostring(maxRank), #spells > 0 and table.concat(spells, ", ") or "none",
+        tostring(ProfessionSpell(offset, numSpells) or "NONE - button hidden"))
 end
 
 --------------------------------------------------
@@ -278,10 +349,14 @@ local ENTRIES = {
                      action = Func("ToggleCharacter", function() ToggleCharacter("TokenFrame") end) },
     professions  = { text = L("PROFESSIONS_BUTTON", "Professions"), action = Click("ProfessionMicroButton"),
                      badge  = AlertBadge(Alerts.Professions) },
-    -- each named after the profession learned there, hidden when none
+    -- each named after the spell it casts (Fishing Journal), hidden when the profession isn't learned
     profession1  = ProfessionEntry(1, "First Profession"),
     profession2  = ProfessionEntry(2, "Second Profession"),
     cooking      = ProfessionEntry(5, "Cooking"),
+    fishing      = ProfessionEntry(4, "Fishing"),
+    -- Archaeology on live, First Aid on Forever
+    profession3  = ProfessionEntry(3, WOW_PROJECT_CAMELOT and WOW_PROJECT_ID == WOW_PROJECT_CAMELOT
+                                      and "First Aid" or "Archaeology"),
     -- Forever has a micro button for each, Retail one for both (so Blizzard's function)
     spellbook    = { text = L("SPELLBOOK", "Spellbook"),
                      action = function()
@@ -316,7 +391,7 @@ local ENTRIES = {
                      end },
 
     -- the Game Menu's own
-    options  = { text = L("GAMEMENU_OPTIONS", "Options"), default = true, action = Func(nil, OpenSettings),
+    options  = { text = L("GAMEMENU_OPTIONS", "Options"), default = true, action = Options,
                  badgeKind = "new",
                  badge  = function()
                      return CurrentVersionHasNewUnseenSettings() and "new"
@@ -460,20 +535,20 @@ end
 -- Buttons in no category are unused.
 --------------------------------------------------
 
+-- The player's windows, adventure and social, and the Game Menu
 local DEFAULT_LAYOUT = {
     { name = "Character",
-      items = { "character", "spellbook", "talents",
-                "professions", "profession1", "profession2", "achievements" },
+      items = { "character", "spellbook", "talents", "achievements",
+                "professions", "profession1", "profession2" },
       gaps  = { professions = true } },
+    { name = "Adventure",
+      items = { "questlog", "adventure", "groupfinder", "guild", "calendar", "mounts", "appearances" },
+      gaps  = { mounts = true } },
     { name = "Game Menu", fixed = true,
       items = { "options", "shop", "addons", "editmode", "support", "macros", "reload",
                 "logout", "exit", "blizzard", "close" },
       gaps  = { addons = true, logout = true, blizzard = true },
       off   = { shop = true, reload = true, close = true } },
-    { name = "Social",    items = { "guild", "groupfinder", "pvp" } },
-    { name = "Adventure",
-      items = { "questlog", "adventure", "calendar", "housing", "mounts", "appearances" },
-      gaps  = { housing = true } },
 }
 
 -- The game's own Game Menu. New installs start with it
@@ -488,19 +563,38 @@ local ORIGINAL_LAYOUT = {
 local COMPACT_LAYOUT = {
     { name = "Game Menu", fixed = true,
       items = { "options", "addons", "editmode", "macros", "logout", "exit" },
-      gaps  = { addons = true, logout = true } },
+      gaps  = { logout = true } },
     { name = "Player",
-      items = { "character", "travelerslog", "talents", "profession1", "profession2", "separator", "volume", "latency" },
-      gaps  = { profession1 = true } },
+      items = { "character", "talents", "spellbook", "professions", "travelerslog", "separator", "volume", "latency" } },
 }
 
-local LAYOUTS = { default = DEFAULT_LAYOUT, original = ORIGINAL_LAYOUT, compact = COMPACT_LAYOUT }
+-- Everything AlniMenu has, to show what it can do: every button and widget, all switched on
+local FULL_LAYOUT = {
+    { name = "Character",
+      items = { "character", "reputation", "currency", "spellbook", "talents", "achievements" } },
+    { name = "Professions",
+      items = { "professions", "profession1", "profession2", "profession3", "fishing", "cooking" },
+      gaps  = { profession1 = true } },
+    { name = "Adventure",
+      items = { "questlog", "adventure", "travelerslog", "calendar", "housing", "mounts", "appearances" },
+      gaps  = { housing = true } },
+    { name = "Social",    items = { "guild", "groupfinder", "pvp" } },
+    { name = "Info",
+      items = { "experience", "gold", "durability", "bagspace", "clock", "latency", "separator", "volume", "sound" } },
+    { name = "Game Menu", fixed = true,
+      items = { "options", "shop", "addons", "editmode", "support", "macros", "reload",
+                "logout", "exit", "blizzard", "close" },
+      gaps  = { addons = true, logout = true, blizzard = true } },
+}
+
+local LAYOUTS = { default = DEFAULT_LAYOUT, original = ORIGINAL_LAYOUT, compact = COMPACT_LAYOUT, full = FULL_LAYOUT }
 
 -- the Layouts list shows them in this order
 local LAYOUT_ORDER = {
     { name = "default", label = "Default" },
     { name = "original", label = "Original" },
     { name = "compact", label = "Compact" },
+    { name = "full", label = "Full" },
 }
 
 -- The Game Menu category: always shown, never renamed or deleted
@@ -755,9 +849,12 @@ function ns.Label(key)
     if renamed then
         return renamed
     end
-    -- a profession button is named after the profession learned there
-    local name = entry.profession and entry.profession()
-    return name or entry.text
+    -- a profession button is named after the spell it casts (Fishing Journal), else the profession learned there
+    if entry.profession then
+        local name, _, spellName = entry.profession()
+        return spellName or name or entry.text
+    end
+    return entry.text
 end
 
 --------------------------------------------------
@@ -869,11 +966,19 @@ local function CreateMenuButton(entry)
         return CreateWidgetRow(entry, action)
     end
     local b
-    if action.click or action.macro or action.spell then
+    if action.click or action.gameMenu or action.macro or action.spell then
         b = CreateFrame("Button", nil, menu, "SecureActionButtonTemplate, " .. BUTTON_TEMPLATE)
         if action.click then
             b:SetAttribute("type", "click")
             b:SetAttribute("clickbutton", action.click)
+        elseif action.gameMenu then
+            -- the Game Menu button is looked up each time the menu is laid out; without one, the fallback
+            b:SetAttribute("type", "click")
+            b:HookScript("PostClick", function(self)
+                if not self:GetAttribute("clickbutton") then
+                    action.fallback()
+                end
+            end)
         elseif action.spell then
             -- the spell itself is set each time the menu is laid out
             b:SetAttribute("type", "spell")
@@ -973,6 +1078,8 @@ local function UpdateBadge(entry)
         -- what the button is and does
         local action = b.action
         local how = action.click and ("clicks " .. (action.click:GetName() or "a Blizzard button"))
+            or action.gameMenu and (b:GetAttribute("clickbutton") and "clicks the Game Menu's button"
+                or "calls a Blizzard function (no Game Menu button yet)")
             or action.macro and ("runs " .. action.macro:gsub("\n", " / "))
             or action.spell and ("casts spell " .. tostring(b:GetAttribute("spell")))
             or "calls a Blizzard function"
@@ -1361,12 +1468,14 @@ local function RemoveFromMenu(key)
     Changed()
 end
 
--- How the + lists group the buttons, whatever the layout. Buttons in none go under Other
+-- How the + lists group the buttons, whatever the layout, in this order. Buttons in none go under Other
 local ADD_GROUPS = {
     { items = { "options", "shop", "addons", "editmode", "support", "macros", "reload", "logout", "exit", "blizzard",
                 "close" } },
-    { name = "Character", items = { "character", "reputation", "currency", "spellbook", "talents", "professions",
-                                    "profession1", "profession2", "cooking", "achievements" } },
+    { name = "Character", items = { "character", "reputation", "currency", "spellbook", "talents", "achievements" } },
+    -- the Professions window, then one button per profession the character has learned
+    { name = "Professions",
+      items = { "professions", "profession1", "profession2", "profession3", "fishing", "cooking" } },
     { name = "Adventure", items = { "questlog", "adventure", "travelerslog", "calendar", "housing" } },
     { name = "Social", items = { "guild", "groupfinder", "pvp" } },
     { name = "Collections", items = { "mounts", "appearances" } },
@@ -1380,7 +1489,7 @@ local function ShowAddMenu(owner, i)
         return
     end
     -- buttons under their ADD_GROUPS group
-    local home = {}
+    local home, rank = {}, {}
     local groups, order = {}, {}
     local function Group(name)
         if not groups[name] then
@@ -1392,14 +1501,49 @@ local function ShowAddMenu(owner, i)
     for _, group in ipairs(ADD_GROUPS) do
         local name = group.name or GAME_MENU_NAME
         Group(name)
-        for _, key in ipairs(group.items) do
+        for index, key in ipairs(group.items) do
             home[key] = name
+            rank[key] = index
         end
     end
-    for _, key in ipairs(ns.UnusedKeys()) do
-        if ENTRIES[key].button then
-            table.insert(Group(ENTRIES[key].custom and "Your buttons" or home[key] or "Other"), key)
+    -- dev only: what each profession slot holds, and why its button shows or not
+    if ns.DEBUG then
+        ns.DebugPrint("+ Add: GetProfessions() =", GetProfessions and strjoin(", ",
+            tostringall(GetProfessions())) or "API missing")
+        for slot, key in ipairs({ "profession1", "profession2", "profession3", "fishing", "cooking" }) do
+            ns.DebugPrint(("+ Add:   slot %d (%s): %s"):format(slot, key, DescribeProfessionSlot(slot)))
         end
+    end
+    -- every button, the ones already in the menu shown disabled. A profession button only for a profession the
+    -- character has learned
+    local unused = {}
+    for _, key in ipairs(ns.UnusedKeys()) do
+        unused[key] = true
+    end
+    for key, entry in pairs(ENTRIES) do
+        if not entry.widget and entry.button then
+            if entry.profession and not entry.profession() then
+                if ns.DEBUG then
+                    ns.DebugPrint("+ Add:   " .. key .. " skipped: profession not learned")
+                end
+            else
+                table.insert(Group(entry.custom and "Your buttons" or home[key] or "Other"), key)
+                if ns.DEBUG and (entry.profession or key == "professions") then
+                    ns.DebugPrint("+ Add:   " .. key .. " (" .. ns.Label(key) .. ")"
+                        .. (unused[key] and "" or ", already in the menu"))
+                end
+            end
+        end
+    end
+
+    -- an ADD_GROUPS group in its own order; Other and Your buttons by name
+    for _, keys in pairs(groups) do
+        table.sort(keys, function(a, b)
+            if rank[a] and rank[b] then
+                return rank[a] < rank[b]
+            end
+            return ns.Label(a) < ns.Label(b)
+        end)
     end
 
     local widgets = {}
@@ -1407,8 +1551,9 @@ local function ShowAddMenu(owner, i)
         local def = WIDGET_DEFS[key]
         if def.multiple then
             table.insert(widgets, { text = def.text, add = function() AddInstance(key, i) end })
-        elseif ENTRIES[key].button and not Find(key) then
-            table.insert(widgets, { text = ns.Label(key), add = function() AddToCategory(key, i) end })
+        elseif ENTRIES[key].button then
+            table.insert(widgets, { text = ns.Label(key), add = function() AddToCategory(key, i) end,
+                                    placed = Find(key) ~= nil })
         end
     end
 
@@ -1417,14 +1562,15 @@ local function ShowAddMenu(owner, i)
             if #groups[name] > 0 then
                 local sub = root:CreateButton(name)
                 for _, key in ipairs(groups[name]) do
-                    sub:CreateButton(ns.Label(key), function() AddToCategory(key, i) end)
+                    local button = sub:CreateButton(ns.Label(key), function() AddToCategory(key, i) end)
+                    button:SetEnabled(unused[key] == true)
                 end
             end
         end
         if #widgets > 0 then
             local sub = root:CreateButton("Widget")
             for _, widget in ipairs(widgets) do
-                sub:CreateButton(widget.text, widget.add)
+                sub:CreateButton(widget.text, widget.add):SetEnabled(not widget.placed)
             end
         end
         root:CreateDivider()
@@ -1705,6 +1851,11 @@ local function LayoutColumn(keys, gaps, visible, x, top)
                 local _, spellID = entry.profession()
                 entry.button:SetAttribute("spell", spellID)
                 entry.button:SetText(ns.Label(key))
+            end
+            local action = entry.button.action
+            if action and action.gameMenu then
+                -- the Game Menu rebuilds its buttons each time it opens
+                entry.button:SetAttribute("clickbutton", action.gameMenu())
             end
             -- widgets can be shorter, but not in edit mode, where the controls go
             local h = (not editing and entry.rowHeight) or BUTTON_H
@@ -2098,6 +2249,12 @@ function ns.HideMenu()
     end
     menu:Hide()
     return true
+end
+
+--- Whether the menu is in edit mode
+---@return boolean
+function ns.IsEditing()
+    return editing
 end
 
 --- Turns edit mode on or off. Off keeps the changes only with `save` (Done).
