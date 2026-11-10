@@ -110,17 +110,27 @@ else
 end
 echo
 
-echo "Changes that go into the commit:"
-git status --short
+# already committed (e.g. by hand): only the tag is left to make
+set -l changes (git status --porcelain)
+set -l question "Commit as \"$ver\" and tag v$ver?"
+if test (count $changes) -gt 0
+    echo "Changes that go into the commit:"
+    git status --short
+else
+    echo "Nothing to commit: the last commit ("(git log -1 --format=%s)") gets the tag."
+    set question "Tag v$ver?"
+end
 echo
-read -P "Commit as \"$ver\" and tag v$ver? [y/N] " answer
+read -P "$question [y/N] " answer
 if not string match -qi y -- "$answer"
     echo "Nothing committed. The file changes are left in place."
     exit 0
 end
 
-git add -A
-and git commit -m $ver
+if test (count $changes) -gt 0
+    git add -A
+    and git commit -m $ver
+end
 and git tag v$ver
 or begin
     echo "Stopped: a git step failed (see above)." >&2
