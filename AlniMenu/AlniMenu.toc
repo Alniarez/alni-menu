@@ -1,7 +1,7 @@
 ## Interface: 120107, 120105, 16001
 ## Title: AlniMenu
 ## Notes: Replaces the Game Menu that Esc opens with a customizable one.
-## Version: 1.0.2
+## Version: 1.0.3
 ## Author: Alniarez
 ## X-Curse-Project-ID: 1726867
 ## OptionalDeps: AlniDev

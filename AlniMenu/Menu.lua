@@ -370,6 +370,12 @@ local ENTRIES = {
                      end,
                      badge  = AlertBadge(Alerts.Talents) },
     achievements = { text = L("ACHIEVEMENT_BUTTON", "Achievements"), action = Click("AchievementMicroButton") },
+    -- Forever only: the Legacy window (perks tree and challenges). Does nothing until Legacy is unlocked
+    legacy       = { text = L("LEGACY_BUTTON", "Legacy"), action = Click("LegacyMicroButton"),
+                     badge  = AlertBadge(function()
+                         return LegacyChallengeViewedUtil and LegacyChallengeViewedUtil.HasAnyUnviewedChallenges()
+                             and "New challenges"
+                     end) },
     questlog     = { text = "Quest Log & Map", action = Click("QuestLogMicroButton") },
     calendar     = { text = "Calendar", action = Click("GameTimeFrame") },
     housing      = { text = "Housing Dashboard", action = Click("HousingMicroButton") },
@@ -1472,7 +1478,8 @@ end
 local ADD_GROUPS = {
     { items = { "options", "shop", "addons", "editmode", "support", "macros", "reload", "logout", "exit", "blizzard",
                 "close" } },
-    { name = "Character", items = { "character", "reputation", "currency", "spellbook", "talents", "achievements" } },
+    { name = "Character", items = { "character", "reputation", "currency", "spellbook", "talents", "achievements",
+                                    "legacy" } },
     -- the Professions window, then one button per profession the character has learned
     { name = "Professions",
       items = { "professions", "profession1", "profession2", "profession3", "fishing", "cooking" } },

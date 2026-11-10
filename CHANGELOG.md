@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.3
+
+- Legacy button (Forever)
+
 ## 1.0.2
 
 - Bug fixes

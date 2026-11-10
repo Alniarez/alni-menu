@@ -1,3 +1,1 @@
-- Bug fixes
-- Profession buttons rework
-- Default layouts updated
+- Legacy button (Forever)
