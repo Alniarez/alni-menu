@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.0.4
+
+- Updated UI library (AlnUI 3)
+- Settings button in edit mode
+- Fixed Discord settings being blocked after opening Options from the menu
+- Altered options menu
+
 ## 1.0.3
 
 - Legacy button (Forever)

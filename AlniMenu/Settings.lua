@@ -14,11 +14,11 @@ local THEME_DESCRIPTIONS = {
 }
 
 local function GetThemeOptions()
-    local container = Settings.CreateControlTextContainer()
+    local list = {}
     for _, name in ipairs(ns.Lib:GetThemes()) do
-        container:Add(name, name:sub(1, 1):upper() .. name:sub(2), THEME_DESCRIPTIONS[name])
+        table.insert(list, { value = name, label = name:sub(1, 1):upper() .. name:sub(2), tooltip = THEME_DESCRIPTIONS[name] })
     end
-    return container:GetData()
+    return list
 end
 
 StaticPopupDialogs.ALNIMENU_ERASE_DATA = {
@@ -35,25 +35,6 @@ StaticPopupDialogs.ALNIMENU_ERASE_DATA = {
     showAlert    = true,
 }
 
--- A settings button that shows up in the Settings search. Search words added
--- by addon code (CreateSettingsButtonInitializer with addSearchTags) taint the
--- search, and Blizzard then blocks the Discord row's IsUserOAuthed(). Backed
--- by an unused setting, Blizzard adds the label as a search word itself.
-local unusedSettings = {}
-local function AddSearchableButton(category, variable, label, buttonText, onClick, tooltip)
-    local layout = SettingsPanel:GetLayout(category)
-    if not Settings.CreateSettingInitializer then
-        layout:AddInitializer(CreateSettingsButtonInitializer(label, buttonText, onClick, tooltip, false))
-        return
-    end
-    local setting = Settings.RegisterAddOnSetting(category, variable, variable, unusedSettings,
-        Settings.VarType.Boolean, label, false)
-    layout:AddInitializer(Settings.CreateSettingInitializer("SettingButtonControlTemplate", {
-        setting = setting, name = label, tooltip = tooltip,
-        buttonText = buttonText, buttonClick = onClick,
-    }))
-end
-
 local loader = CreateFrame("Frame")
 loader:RegisterEvent("ADDON_LOADED")
 loader:SetScript("OnEvent", function(self, _, name)
@@ -62,30 +43,46 @@ loader:SetScript("OnEvent", function(self, _, name)
     end
     self:UnregisterAllEvents()
 
-    local category = Settings.RegisterVerticalLayoutCategory("AlniMenu")
+    if AlniMenuDB.theme == nil then
+        AlniMenuDB.theme = "modern"
+    end
 
-    local themeSetting = Settings.RegisterAddOnSetting(
-        category, "ALNIMENU_THEME", "theme", AlniMenuDB,
-        Settings.VarType.String, "Theme", "modern")
-    Settings.CreateDropdown(category, themeSetting, GetThemeOptions,
-        "The border and title style of the menu.")
-    Settings.SetOnValueChangedCallback("ALNIMENU_THEME", function()
-        ns.ApplyTheme()
-    end)
+    -- drawn on its own frame (canvas): addon options on Blizzard's settings rows get its Discord settings blocked
+    local page = ns.Lib:CreateSettingsPage({ name = "AlniMenu" })
+
+    page:AddDropdown({
+        label   = "Theme",
+        tooltip = "The border and title style of the menu.",
+        options = GetThemeOptions,
+        get     = function() return AlniMenuDB.theme end,
+        set     = function(value)
+            AlniMenuDB.theme = value
+            ns.ApplyTheme()
+        end,
+    })
 
     -- buttons and categories are edited on the menu itself
-    AddSearchableButton(category, "ALNIMENU_EDIT_LAYOUT", "Buttons and categories", "Edit Layout",
-        function() ns.SetEditing(true) end,
-        "Opens the menu in edit mode: show or hide buttons, move them between categories, "
-        .. "and add, rename or reorder categories. The gear in the menu's corner does the same.")
+    page:AddButton({
+        label   = "Buttons and categories",
+        text    = "Edit Layout",
+        tooltip = "Opens the menu in edit mode: show or hide buttons, move them between categories, "
+            .. "and add, rename or reorder categories. The gear in the menu's corner does the same.",
+        onClick = function() ns.SetEditing(true) end,
+    })
 
-    AddSearchableButton(category, "ALNIMENU_MANAGE_CUSTOM", "Custom buttons", "Manage",
-        function() ns.ShowCustomList() end,
-        "Every custom button, in the menu or not, to edit or delete.")
+    page:AddButton({
+        label   = "Custom buttons",
+        text    = "Manage",
+        tooltip = "Every custom button, in the menu or not, to edit or delete.",
+        onClick = function() ns.ShowCustomList() end,
+    })
 
-    AddSearchableButton(category, "ALNIMENU_ERASE", "Erase all data", "Erase",
-        function() StaticPopup_Show("ALNIMENU_ERASE_DATA") end,
-        "Back to a new install: the Original layout, no custom buttons or saved layouts. Reloads the UI.")
+    page:AddButton({
+        label   = "Erase all data",
+        text    = "Erase",
+        tooltip = "Back to a new install: the Original layout, no custom buttons or saved layouts. Reloads the UI.",
+        onClick = function() StaticPopup_Show("ALNIMENU_ERASE_DATA") end,
+    })
 
-    Settings.RegisterAddOnCategory(category)
+    ns.settingsCategory = page:Register()
 end)

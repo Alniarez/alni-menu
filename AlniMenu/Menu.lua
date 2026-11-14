@@ -74,9 +74,14 @@ local function OpenSettings()
     SettingsPanel:Open()
 end
 
---- The Game Menu's own Options button. The Game Menu builds its buttons each time it opens, so this is nil until
---- it has opened once. Clicked through a secure button, Settings opens untainted: opened from addon code, its
---- Discord settings are blocked (ADDON_ACTION_FORBIDDEN: IsUserOAuthed()).
+--- Settings opened by the game itself, untainted, on clients that can (C_SettingsUtil.OpenSettingsPanel)
+local function OpenSettingsSafe()
+    C_SettingsUtil.OpenSettingsPanel()
+end
+
+--- The Game Menu's own Options button. The Game Menu builds its buttons each time it opens, so this is nil until it has
+--- opened once. Clicked through a secure button, Settings opens untainted: opened from addon code, its Discord settings
+--- are blocked (ADDON_ACTION_FORBIDDEN: IsUserOAuthed()).
 ---@return Button?
 local function GameMenuOptionsButton()
     local pool = GameMenuFrame and GameMenuFrame.buttonPool
@@ -90,8 +95,11 @@ local function GameMenuOptionsButton()
     end
 end
 
---- Settings, through the Game Menu's Options button when it has one
+--- Settings: opened by the game where it can, else through the Game Menu's Options button when it has one
 local function Options()
+    if C_SettingsUtil and C_SettingsUtil.OpenSettingsPanel then
+        return { func = OpenSettingsSafe }
+    end
     return { gameMenu = GameMenuOptionsButton, fallback = OpenSettings }
 end
 
@@ -105,9 +113,8 @@ local function ShowBlizzardMenu()
     end
 end
 
---- The spell a profession's button casts, from its spells as the Professions book lists them: the first that is
---- learned and not passive, else the first one (what the book's first button casts). Its ID and name; nil when it
---- has none.
+--- The spell a profession's button casts, from its spells as the Professions book lists them: the first that is learned
+--- and not passive, else the first one (what the book's first button casts). Its ID and name; nil when it has none.
 ---@param offset integer spellbook offset, from GetProfessionInfo
 ---@param numSpells integer
 ---@return integer?, string?
@@ -128,9 +135,9 @@ local function ProfessionSpell(offset, numSpells)
     end
 end
 
---- Profession in slot `slot` of GetProfessions() (1, 2: main ones, 3: Archaeology, or First Aid on Forever,
---- 4: Fishing, 5: Cooking): its name, the spell that opens it, and that spell's name (e.g. Fishing Journal).
---- Nil when there is none.
+--- Profession in slot `slot` of GetProfessions() (1, 2: main ones, 3: Archaeology, or First Aid on Forever, 4: Fishing,
+--- 5: Cooking): its name, the spell that opens it, and that spell's name (e.g. Fishing Journal). Nil when there is
+--- none.
 ---@param slot integer
 ---@return function
 local function Profession(slot)
@@ -1793,8 +1800,16 @@ local function EditHeading(i)
     return head
 end
 
--- Along the bottom in edit mode: layouts on the left, leaving edit mode on the right
-local FOOTER_MIN = 90 + 8 + 2 * 80 + 8   -- the narrowest it fits in
+-- Along the bottom in edit mode: layouts and settings on the left, leaving edit mode on the right
+local FOOTER_MIN = 90 + 8 + 80 + 8 + 2 * 80 + 8   -- the narrowest it fits in
+
+--- AlniMenu's page in the game's Settings. Settings.OpenToCategory has the game open it, untainted (opened by addon
+--- code, its Discord settings are blocked)
+local function OpenAddonSettings()
+    if ns.settingsCategory and C_SettingsUtil and C_SettingsUtil.OpenSettingsPanel then
+        Settings.OpenToCategory(ns.settingsCategory:GetID())
+    end
+end
 
 local function EditFooter()
     if menu.editFooter then
@@ -1812,6 +1827,14 @@ local function EditFooter()
         tooltipText = "Load Default, Original, Compact or one you saved, or save this one.",
     })
     layouts:SetPoint("LEFT")
+    local settings = ns.Lib:CreateButton(footer, {
+        text        = SETTINGS or "Settings",
+        width       = 80,
+        onClick     = OpenAddonSettings,
+        tooltip     = SETTINGS or "Settings",
+        tooltipText = "AlniMenu's page in the game's Options: theme, custom buttons, erase data.",
+    })
+    settings:SetPoint("LEFT", layouts, "RIGHT", 8, 0)
     local done = ns.Lib:CreateButton(footer, {
         text    = "Done",
         width   = 80,
