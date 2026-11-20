@@ -74,14 +74,13 @@ local function OpenSettings()
     SettingsPanel:Open()
 end
 
---- Settings opened by the game itself, untainted, on clients that can (C_SettingsUtil.OpenSettingsPanel)
+--- Opens Settings (C_SettingsUtil.OpenSettingsPanel)
 local function OpenSettingsSafe()
     C_SettingsUtil.OpenSettingsPanel()
 end
 
 --- The Game Menu's own Options button. The Game Menu builds its buttons each time it opens, so this is nil until it has
---- opened once. Clicked through a secure button, Settings opens untainted: opened from addon code, its Discord settings
---- are blocked (ADDON_ACTION_FORBIDDEN: IsUserOAuthed()).
+--- opened once.
 ---@return Button?
 local function GameMenuOptionsButton()
     local pool = GameMenuFrame and GameMenuFrame.buttonPool
@@ -1803,8 +1802,7 @@ end
 -- Along the bottom in edit mode: layouts and settings on the left, leaving edit mode on the right
 local FOOTER_MIN = 90 + 8 + 80 + 8 + 2 * 80 + 8   -- the narrowest it fits in
 
---- AlniMenu's page in the game's Settings. Settings.OpenToCategory has the game open it, untainted (opened by addon
---- code, its Discord settings are blocked)
+--- Opens AlniMenu's page in the game's Settings
 local function OpenAddonSettings()
     if ns.settingsCategory and C_SettingsUtil and C_SettingsUtil.OpenSettingsPanel then
         Settings.OpenToCategory(ns.settingsCategory:GetID())

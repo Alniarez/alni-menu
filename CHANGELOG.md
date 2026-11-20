@@ -1,8 +1,11 @@
 # Changelog
 
+## 1.0.5
+
+- Updated UI library (AlnUI 3) again :)
+
 ## 1.0.4
 
-- Updated UI library (AlnUI 3)
 - Settings button in edit mode
 - Fixed Discord settings being blocked after opening Options from the menu
 - Altered options menu

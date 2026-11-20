@@ -47,7 +47,6 @@ loader:SetScript("OnEvent", function(self, _, name)
         AlniMenuDB.theme = "modern"
     end
 
-    -- drawn on its own frame (canvas): addon options on Blizzard's settings rows get its Discord settings blocked
     local page = ns.Lib:CreateSettingsPage({ name = "AlniMenu" })
 
     page:AddDropdown({

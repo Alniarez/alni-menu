@@ -1,8 +1,6 @@
 -- AlniMenu/Core.lua
 -- Saved settings, and Esc opening AlniMenu instead of the Game Menu.
 --
--- Not RegisterGameMenuEscHandler: adding to it from addon code taints Blizzard's own Esc handlers.
---
 -- The Game Menu still opens:
 --   in combat       AlniMenu's secure buttons can't be shown then
 --   in Edit Mode    Blizzard's, so AlniMenu stays out of its way

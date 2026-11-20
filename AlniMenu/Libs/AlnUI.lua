@@ -1,73 +1,17 @@
 -- Libs/AlnUI.lua
---
--- AlnUI: small helpers for building addon windows out of Blizzard's own
--- widgets and templates. Copy this file into an addon, list it in the
--- .toc before the files that use it, and call AlnUI:CreateX(...).
---
--- Every addon that embeds AlnUI shares one global AlnUI table. Each copy
--- carries a version number (VERSION below), and the newest copy loaded is
--- the one used, whatever order the addons load in: an older copy loading
--- later stops at the version check. So a release must never remove or
--- rename anything older releases offered, and VERSION must go up by one
--- with every release.
---
--- Conventions
---   * Every constructor takes an `opts` table whose fields are all
---     optional; each function's comment block lists them with defaults.
---   * Constructors return the Blizzard widget itself (a Frame, Button,
---     FontString...), with AlnUI's extra methods attached to it.
---   * Fields starting with `aln` (frame.alnTheme, frame.alnState...) are
---     AlnUI's own bookkeeping. Read them in tests if you must, but do not
---     set them.
---
--- Contents
---   1. Setup              the version check, the AlnUI table,
---                         template checks
---   2. Themes             what dialogs and toasts look like
---                           HasTheme, GetThemes
---   3. Dialogs            movable windows
---        3.1 Close button and grip placement
---        3.2 Title banner
---        3.3 Fitting the title
---        3.4 Title drag area and theme
---        3.5 Stacking
---        3.6 Resizing
---        3.7 Theme methods
---        3.8 CreateDialog
---   4. Layout             CreateColumnRow, CreateSortHeader,
---                         CreateSeparator, CreateScrollFrame,
---                         CreateScrollList
---   5. Text               CreateLabel, CreateEditBox
---   6. Controls           CreateButton, CreateIconButton, CreateCheckbox,
---                         CreateRadioGroup, CreateSlider,
---                         HasTabs, CreateTabs, HasDropdown, CreateDropdown
---   7. Feedback           CreateProgressBar, AddTooltip, ShowToast
---                           (GetActiveToast, GetNumQueuedToasts,
---                           ClearToasts)
---   8. Settings pages     CreateSettingsPage: an addon's page in the
---                         game's Settings, drawn on its own frame
 
 --==================================================
 -- 1. Setup
 --==================================================
 
--- Raise by one with every release. Version 1 is every copy from before
--- AlnUI had a version number; those copies set no AlnUI.version.
 local VERSION = 3
 
--- A copy this new or newer is already loaded: keep it and skip this one.
--- (A file may return early; WoW runs each file as its own chunk.)
 if AlnUI and (AlnUI.version or 1) >= VERSION then return end
 
--- The table is kept when a newer copy replaces an older one, so addons
--- that already hold a reference to AlnUI get the new functions too.
 AlnUI = AlnUI or {}
-AlnUI.version    = VERSION       -- the version in use
-AlnUI.loadedFrom = (...)         -- the addon whose copy that is
+AlnUI.version    = VERSION
+AlnUI.loadedFrom = (...)
 
--- True when the client knows the XML template `name`. Widgets that need
--- a template some clients lack (tabs, the modern dropdown, the template
--- themes) check this first.
 local function HasTemplate(name)
     return C_XMLUtil ~= nil
         and C_XMLUtil.GetTemplateInfo ~= nil
@@ -76,39 +20,6 @@ end
 
 --==================================================
 -- 2. Themes
---
--- A theme is the look of a dialog or toast: its border, background and
--- title art. There are two kinds:
---
---   Backdrop themes ("gold", "standard") draw with a backdrop and a
---   title banner cut from a header texture. Their backdrops use the
---   values of Blizzard's BACKDROP_GOLD_DIALOG_32_32 and
---   BACKDROP_DIALOG_32_32.
---
---   Template themes ("basic", "panel", "modern", "tooltip") draw with
---   Blizzard's own border templates: "basic" is BasicFrameTemplate's
---   metal frame and title bar, "panel" is its modern version
---   (DefaultPanelTemplate, the Character window's frame without the
---   portrait), "modern" is the Game Menu's border and header,
---   "tooltip" is GameTooltip's border. Except in "modern", the title is
---   plain text inside the frame. Clients without the templates fall
---   back to a backdrop theme.
---
--- Fields of a theme:
---   closeOffset     how far in from the top-right corner the close
---                   button sits; negative overhangs the corner
---   closePoint      { x, y } from the top-right corner instead, when
---                   the two differ
---   gripOffset      the same for the resize grip in the bottom-right
---   header          title banner texture (backdrop themes)
---   backdrop        SetBackdrop table (backdrop themes)
---   border          border template (template themes)
---   headerTemplate  title header template ("modern" only)
---   toastTheme      for dialogs only: toasts given this theme use
---                   toastTheme instead
---   templateTitle   true: the title takes the font and place of the
---                   border template's own TitleText (on the template or
---                   its TitleContainer), which is hidden
 --==================================================
 
 local THEMES = {
@@ -141,21 +52,18 @@ local THEMES = {
         },
     },
     modern = {
-        -- where Blizzard's DialogBorderTemplate popups put it (RolePoll,
-        -- CreateChannelPopup, RoleSelectionTemplate)
         closeOffset    = 2,
         gripOffset     = 4,
         border         = "DialogBorderTemplate",
         headerTemplate = "DialogHeaderTemplate",
     },
     basic = {
-        -- where Blizzard's UIPanelCloseButtonDefaultAnchors puts it
         closeOffset   = 0,
         closePoint    = { 1, 0 },
         gripOffset    = 4,
         border        = "BasicFrameTemplate",
         templateTitle = true,
-        toastTheme    = "tooltip",   -- a whole window's frame, too much for a toast
+        toastTheme    = "tooltip",
     },
     panel = {
         closeOffset   = 0,
@@ -166,15 +74,12 @@ local THEMES = {
         toastTheme    = "tooltip",
     },
     tooltip = {
-        -- the close button overhangs the corner, as on ItemRefTooltip
         closeOffset = -2,
         gripOffset  = 3,
         border      = "TooltipBackdropTemplate",
     },
 }
 
--- True when this client has every template `theme` needs. Backdrop
--- themes need none, so they are always available.
 local function IsThemeAvailable(theme)
     if not theme then return false end
     if theme.border and not HasTemplate(theme.border) then return false end
@@ -182,8 +87,6 @@ local function IsThemeAvailable(theme)
     return true
 end
 
--- The theme name to use for `name`: itself if this client can draw it,
--- otherwise `fallback`. forToast: a window-only theme's toastTheme.
 local function ResolveTheme(name, fallback, forToast)
     local theme = THEMES[name]
     if forToast and theme and theme.toastTheme then
@@ -193,21 +96,10 @@ local function ResolveTheme(name, fallback, forToast)
     return fallback
 end
 
--- A border template's own title FontString, if it has one: on the
--- template itself (BasicFrameTemplate) or on its title bar frame
--- (DefaultPanelTemplate's TitleContainer).
 local function TemplateTitleText(border)
     return border.TitleText or (border.TitleContainer and border.TitleContainer.TitleText)
 end
 
--- Draws `theme`'s border and background on `frame`, which must be a
--- BackdropTemplate frame (dialogs and toasts both are).
---
--- Backdrop themes set the backdrop. Template themes clear it and show a
--- border frame made from the template instead. Each template border is
--- made the first time it is needed and kept in frame.alnBorders, so
--- switching themes back and forth reuses it. frame.border is the
--- template border showing right now (nil in backdrop themes).
 local function ApplyThemeBorder(frame, theme)
     if frame.border then frame.border:Hide() end
     frame.border = nil
@@ -223,23 +115,14 @@ local function ApplyThemeBorder(frame, theme)
     if not border then
         border = CreateFrame("Frame", nil, frame, theme.border)
         border:SetAllPoints()
-        -- Draw at the frame's own level. One level up, the border's
-        -- background would cover the frame's own text, such as the title
-        -- (TooltipBackdropTemplate does not use its parent's level the
-        -- way DialogBorderTemplate does).
         if border.SetUsingParentLevel then
             border:SetUsingParentLevel(true)
         else
             border:SetFrameLevel(frame:GetFrameLevel())
         end
-        -- Some templates bring a close button and title of their own;
-        -- dialogs have theirs, and toasts have none.
         if border.CloseButton then border.CloseButton:Hide() end
         local ownTitle = TemplateTitleText(border)
         if ownTitle then ownTitle:Hide() end
-        -- Their other parts (DefaultPanelTemplate's NineSlice, and its
-        -- TitleContainer made at level 510) draw at the frame's level
-        -- too, for the same reason, and so stacking keeps working.
         for i = 1, select("#", border:GetChildren()) do
             local child = select(i, border:GetChildren())
             if child ~= border.CloseButton then
@@ -256,28 +139,16 @@ local function ApplyThemeBorder(frame, theme)
     frame.border = border
 end
 
---------------------------------------------------
--- AlnUI:HasTheme(name) -> bool
---
--- True when `name` is a theme this client can draw. "basic" needs
--- BasicFrameTemplate, "panel" DefaultPanelTemplate, "modern" needs Blizzard's DialogBorderTemplate
--- and DialogHeaderTemplate, "tooltip"
--- needs TooltipBackdropTemplate.
---------------------------------------------------
-
+---True when this client can draw the theme `name`.
+---@param name string
+---@return boolean
 function AlnUI:HasTheme(name)
     return IsThemeAvailable(THEMES[name])
 end
 
---------------------------------------------------
--- AlnUI:GetThemes(kind) -> names
---
--- Returns the theme names CreateDialog and SetTheme accept on this
--- client, sorted alphabetically. With kind "toast", only the ones
--- ShowToast draws: "basic" and "panel" are whole window frames, so
--- toasts given them use "tooltip".
---------------------------------------------------
-
+---The theme names this client can draw.
+---@param kind string?
+---@return string[]
 function AlnUI:GetThemes(kind)
     local names = {}
     for name, theme in pairs(THEMES) do
@@ -291,23 +162,8 @@ end
 
 --==================================================
 -- 3. Dialogs
---
--- A dialog is a movable window with a theme, an optional title, a close
--- button and an optional resize grip. The helpers below each handle one
--- part of it; AlnUI:CreateDialog at the end of this section puts them
--- together, and its comment block lists everything a dialog offers.
---
--- Whenever the theme changes, SetTheme (3.7) redraws the border, the
--- title and the placement of the close button and grip, so every helper
--- here reads the current theme from frame.alnTheme.
 --==================================================
 
---------------------------------------------------
--- 3.1 Close button and grip placement
---------------------------------------------------
-
--- Puts the close button closeOffset in from the top-right corner, or
--- at closePoint.
 local function PlaceCloseButton(frame)
     local theme = THEMES[frame.alnTheme]
     local o = theme.closeOffset
@@ -317,30 +173,16 @@ local function PlaceCloseButton(frame)
     frame.closeButton:SetPoint("TOPRIGHT", x, y)
 end
 
--- Puts the resize grip gripOffset in from the bottom-right corner.
 local function PlaceResizeGrip(frame)
     local o = THEMES[frame.alnTheme].gripOffset
     frame.resizeButton:ClearAllPoints()
     frame.resizeButton:SetPoint("BOTTOMRIGHT", -o, o)
 end
 
---------------------------------------------------
--- 3.2 Title banner
---
--- Backdrop themes show the title on a banner cut from the theme's header
--- texture in three pieces, the way AceGUI's Frame does: a left and a
--- right end cap that keep their size, and a middle that stretches to fit
--- the title. The texture's bottom third is empty, so only its top 63% is
--- used.
---
--- frame.titleBanner is the middle Texture; .left and .right are the caps.
---------------------------------------------------
-
 local BANNER_HEIGHT = 40
-local BANNER_CAP    = 30  -- width of each end cap
-local BANNER_PAD    = 10  -- room around the title inside the middle
+local BANNER_END_W  = 30
+local BANNER_PAD    = 10
 
--- Makes the three banner pieces. They get their texture from SetBanner.
 local function CreateBanner(frame)
     local mid = frame:CreateTexture(nil, "OVERLAY")
     mid:SetTexCoord(0.31, 0.67, 0, 0.63)
@@ -349,18 +191,16 @@ local function CreateBanner(frame)
 
     mid.left = frame:CreateTexture(nil, "OVERLAY")
     mid.left:SetTexCoord(0.21, 0.31, 0, 0.63)
-    mid.left:SetSize(BANNER_CAP, BANNER_HEIGHT)
+    mid.left:SetSize(BANNER_END_W, BANNER_HEIGHT)
     mid.left:SetPoint("RIGHT", mid, "LEFT")
 
     mid.right = frame:CreateTexture(nil, "OVERLAY")
     mid.right:SetTexCoord(0.67, 0.77, 0, 0.63)
-    mid.right:SetSize(BANNER_CAP, BANNER_HEIGHT)
+    mid.right:SetSize(BANNER_END_W, BANNER_HEIGHT)
     mid.right:SetPoint("LEFT", mid, "RIGHT")
     return mid
 end
 
--- Shows all three banner pieces with `texture`, or hides them all when
--- `texture` is nil.
 local function SetBanner(frame, texture)
     local mid = frame.titleBanner
     for _, piece in ipairs({ mid, mid.left, mid.right }) do
@@ -369,33 +209,18 @@ local function SetBanner(frame, texture)
     end
 end
 
---------------------------------------------------
--- 3.3 Fitting the title
---
--- The title art (banner, header, or plain text in the tooltip theme)
--- fits the title text, but never grows so wide that it reaches the close
--- button. A title too long for that is cut off with "...", which WoW
--- does on its own for a one-line FontString given a fixed width.
---------------------------------------------------
-
--- The title's width on one line, however wide the FontString is set.
 local function NaturalWidth(text)
     if text.GetUnboundedStringWidth then return text:GetUnboundedStringWidth() end
     text:SetWidth(0)
     return text:GetStringWidth()
 end
 
--- What the theme draws around the title text: the banner caps and their
--- padding, the header's padding, or nothing for plain text.
 local function TitlePadding(frame, theme)
-    if theme.header then return 2 * BANNER_CAP + BANNER_PAD end
+    if theme.header then return 2 * BANNER_END_W + BANNER_PAD end
     if theme.headerTemplate then return frame.titleHeader.headerTextPadding or 64 end
     return 0
 end
 
--- The widest the title art may be: the frame minus the close button's
--- corner on both sides. The art is centered, so reserving the corner on
--- both sides keeps it clear of the close button.
 local function TitleRoom(frame, theme)
     local reserve = 12
     local cb = frame.closeButton
@@ -403,10 +228,6 @@ local function TitleRoom(frame, theme)
     return math.max(0, frame:GetWidth() - 2 * reserve)
 end
 
--- Sizes the title text and returns how wide the art around it should
--- be: wide enough for the title (or opts.titleWidth), but never more
--- than TitleRoom. Records in frame.alnTitleTruncated whether the text
--- had to be cut off.
 local function FitTitle(frame, theme)
     local text    = frame.titleText
     local padding = TitlePadding(frame, theme)
@@ -415,25 +236,13 @@ local function FitTitle(frame, theme)
     local textRoom = math.max(0, art - padding)
 
     frame.alnTitleTruncated = natural > textRoom
-    -- width 0 sizes the FontString to its text
     text:SetWidth(frame.alnTitleTruncated and textRoom or 0)
     return art
 end
 
---------------------------------------------------
--- 3.4 Title drag area and theme
---
--- A titled dialog is dragged by its title. frame.dragHandle is an
--- invisible frame laid over whatever the theme draws for the title.
---------------------------------------------------
-
--- Fits the drag area to the theme's title: the whole banner with its
--- caps, the modern header, or, in the tooltip theme, a strip along the
--- top edge that stops short of the close button.
 local function PlaceDragHandle(frame, theme)
     local handle = frame.dragHandle
     handle:ClearAllPoints()
-    -- drop the size from the previous theme; the anchors below set it
     handle:SetSize(0, 0)
     if theme.header then
         local banner = frame.titleBanner
@@ -448,12 +257,6 @@ local function PlaceDragHandle(frame, theme)
     end
 end
 
--- Draws the title the way `theme` wants it, then fits the drag area:
---   no header (tooltip)   plain text just inside the top edge
---   header texture        the three-piece banner, text on top of it
---   header template       Blizzard's header frame (made on first use);
---                         the text moves onto it so it draws above it
--- Runs again whenever the frame resizes, so the title refits.
 local function ApplyThemeTitle(frame, theme)
     local text = frame.titleText
     if not theme.header and not theme.headerTemplate then
@@ -463,7 +266,6 @@ local function ApplyThemeTitle(frame, theme)
         text:ClearAllPoints()
         local own = theme.templateTitle and frame.border and TemplateTitleText(frame.border)
         if own then
-            -- exactly where the template puts its own title
             for i = 1, own:GetNumPoints() do
                 local point, rel, relPoint, x, y = own:GetPoint(i)
                 if point == "TOP" then
@@ -476,7 +278,7 @@ local function ApplyThemeTitle(frame, theme)
         FitTitle(frame, theme)
     elseif theme.header then
         SetBanner(frame, theme.header)
-        frame.titleBanner:SetWidth(math.max(0, FitTitle(frame, theme) - 2 * BANNER_CAP))
+        frame.titleBanner:SetWidth(math.max(0, FitTitle(frame, theme) - 2 * BANNER_END_W))
         if frame.titleHeader then frame.titleHeader:Hide() end
         text:SetParent(frame)
         text:ClearAllPoints()
@@ -492,28 +294,13 @@ local function ApplyThemeTitle(frame, theme)
         text:SetParent(header)
         text:ClearAllPoints()
         text:SetPoint("CENTER", header, "CENTER", 0, 0)
-        -- fit the header to the title, as DialogHeaderMixin:Setup does
         header:SetWidth(FitTitle(frame, theme))
     end
     PlaceDragHandle(frame, theme)
 end
 
---------------------------------------------------
--- 3.5 Stacking
---
--- Dialogs in the same strata must not draw through each other. WoW's
--- Raise() (and toplevel, which uses it) only lifts a frame one level
--- above the others, level with their buttons and text, so it is not
--- enough. AlnUI keeps its own dialogs in order instead: each shown
--- dialog sits above the highest level used anywhere inside the one below
--- it. A dialog comes to the front when it is shown or pressed.
---------------------------------------------------
-
--- Every dialog made, so they can be restacked. Weak keys: the table does
--- not keep a dialog alive on its own.
 local dialogs = setmetatable({}, { __mode = "k" })
 
--- The highest frame level used by `frame` or anything inside it.
 local function TopLevelIn(frame)
     local top = frame:GetFrameLevel()
     for i = 1, select("#", frame:GetChildren()) do
@@ -523,11 +310,8 @@ local function TopLevelIn(frame)
     return top
 end
 
-local MAX_FRAME_LEVEL = 10000  -- the client's limit
+local MAX_FRAME_LEVEL = 10000
 
--- Puts the close button one level above everything else on its dialog,
--- so no border, header or widget can ever cover it. Runs whenever levels
--- change: on SetTheme, after every restack, and just after showing.
 local function KeepCloseButtonOnTop(frame)
     local close = frame.closeButton
     if not close then return end
@@ -539,16 +323,10 @@ local function KeepCloseButtonOnTop(frame)
     close:SetFrameLevel(math.min(MAX_FRAME_LEVEL, top + 1))
 end
 
--- Moves `frame` to `level` and everything inside it by the same amount,
--- so their levels keep the same distance to each other (the resize grip,
--- for one, sits 10 levels above its dialog). WoW alone would only push
--- children up, never down. Frames that draw at their
--- parent's level are left to follow it.
 local function SetLevelKeepingOffsets(frame, level)
     local delta = level - frame:GetFrameLevel()
     if delta == 0 then return end
 
-    -- record every level before changing any, parents before children
     local found = {}
     local function Collect(f, isRoot)
         local followsParent = not isRoot and f.IsUsingParentLevel and f:IsUsingParentLevel()
@@ -566,10 +344,6 @@ local function SetLevelKeepingOffsets(frame, level)
     end
 end
 
--- Restacks the shown dialogs in `frame`'s strata, keeping their order
--- but putting `frame` on top. Levels start again from the lowest one in
--- use, so they stay small however often dialogs come to the front.
--- Also available as frame:BringToFront().
 local function BringToFront(frame)
     local strata = frame:GetFrameStrata()
     local stack, base = {}, frame:GetFrameLevel()
@@ -590,8 +364,6 @@ local function BringToFront(frame)
     end
 end
 
--- The AlnUI dialog that `region` is, or is inside of; nil if none.
--- Stops at forbidden frames, which addons may not inspect.
 local function DialogOf(region)
     while region do
         if region.IsForbidden and region:IsForbidden() then return nil end
@@ -600,11 +372,7 @@ local function DialogOf(region)
     end
 end
 
--- Starts one shared listener that brings a dialog to the front whenever
--- the player presses the mouse on it or anything on it. Safe to call for
--- every dialog: the listener is made only once. Returns false where the
--- client has no GLOBAL_MOUSE_DOWN event.
-local mouseWatcher  -- the listener frame, or false when unsupported
+local mouseWatcher
 local function WatchMouseDown()
     if mouseWatcher ~= nil then return mouseWatcher ~= false end
     local watcher = CreateFrame("Frame")
@@ -626,30 +394,18 @@ local function WatchMouseDown()
     return true
 end
 
---------------------------------------------------
--- 3.6 Resizing
---
--- A resizable dialog has a grip in its bottom-right corner, made the
--- first time resizing is turned on. Dragging it resizes the frame within
--- frame.alnResizeBounds; letting go calls opts.onResize.
---------------------------------------------------
-
 local GRIP = "Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-"
 
--- Hands the resize bounds to the client.
 local function ApplyResizeBounds(frame)
     local b = frame.alnResizeBounds
     if frame.SetResizeBounds then
         frame:SetResizeBounds(b.minW, b.minH, b.maxW, b.maxH)
     else
-        -- clients from before SetResizeBounds
         frame:SetMinResize(b.minW, b.minH)
         frame:SetMaxResize(b.maxW, b.maxH)
     end
 end
 
--- Makes the grip, using the chat window's size grabber textures. It sits
--- 10 levels above the frame so content never covers it.
 local function CreateResizeGrip(frame)
     local grip = CreateFrame("Button", nil, frame)
     grip:SetSize(16, 16)
@@ -675,7 +431,6 @@ local function CreateResizeGrip(frame)
     return grip
 end
 
--- frame:SetResizeEnabled(enabled)
 local function SetResizeEnabled(frame, enabled)
     enabled = enabled and true or false
     frame:SetResizable(enabled)
@@ -689,12 +444,10 @@ local function SetResizeEnabled(frame, enabled)
     end
 end
 
--- frame:IsResizeEnabled()
 local function IsResizeEnabled(frame)
     return frame:IsResizable() and true or false
 end
 
--- frame:SetClampedSize(w, h)
 local function SetClampedSize(frame, w, h)
     local b = frame.alnResizeBounds
     frame:SetSize(
@@ -702,17 +455,10 @@ local function SetClampedSize(frame, w, h)
         math.max(b.minH, math.min(b.maxH, h)))
 end
 
---------------------------------------------------
--- 3.7 Theme methods
---------------------------------------------------
-
--- frame:IsTitleTruncated()
 local function IsTitleTruncated(frame)
     return frame.alnTitleTruncated == true
 end
 
--- frame:SetTheme(name): redraws everything the theme decides, in order:
--- border, title, then the close button and grip positions.
 local function SetDialogTheme(frame, name)
     name = ResolveTheme(name, "standard")
     local theme = THEMES[name]
@@ -720,8 +466,6 @@ local function SetDialogTheme(frame, name)
     local previous = frame.alnTheme
     frame.alnTheme = name
     ApplyThemeBorder(frame, theme)
-    -- only on a change of theme, so a font set on titleText by hand
-    -- lasts until the next one
     if frame.titleText and name ~= previous then
         local own = theme.templateTitle and TemplateTitleText(frame.border)
         frame.titleText:SetFontObject(own and own:GetFontObject() or "GameFontNormalLarge")
@@ -732,82 +476,16 @@ local function SetDialogTheme(frame, name)
     KeepCloseButtonOnTop(frame)
 end
 
--- frame:GetTheme()
 local function GetDialogTheme(frame)
     return frame.alnTheme
 end
 
---------------------------------------------------
--- 3.8 AlnUI:CreateDialog(opts) -> frame
---
--- opts (all optional):
---   name          string  global frame name
---   title         string  title text shown in the header banner
---   titleWidth    number  width of the title banner or header (default:
---                         fits the title text). Either way it never
---                         reaches the close button: a title too long for
---                         the frame is cut off with "..." and refits as
---                         the frame resizes
---   width         number  (default 400)
---   height        number  (default 300)
---   parent        frame   (default UIParent)
---   strata        string  frame strata
---   level         number  frame level
---   theme         string  "standard" (default), "gold", "basic"
---                         (BasicFrameTemplate's metal frame and title
---                         bar), "panel" (its modern version,
---                         DefaultPanelTemplate), "modern" (the Game Menu
---                         border) or "tooltip" (the GameTooltip border,
---                         title inside the frame); all but the first two
---                         fall back to "standard" where AlnUI:HasTheme()
---                         is false
---   noCloseButton bool    omit the close button (default false)
---   resizable     bool    show a grip in the bottom-right corner that
---                         resizes the frame (default false)
---   minWidth      number  smallest width while resizing
---                         (default: banner width + 40, from 200 up to
---                         400, so a long title cannot block shrinking)
---   minHeight     number  smallest height while resizing (default 150)
---   maxWidth      number  largest width (default: screen width)
---   maxHeight     number  largest height (default: screen height)
---   onResize      func    onResize(width, height) when the player lets go
---                         of the grip; use it to save the size
---
--- Returns a hidden, movable frame anchored to CENTER. It comes to the
--- front of the other AlnUI dialogs in its strata, widgets and all, when
--- shown or pressed, and catches clicks so they do not reach frames
--- behind it. With:
---   frame:BringToFront()         put it above the other shown dialogs
---   frame:SetTheme(name)         switch theme; unknown or unavailable
---                                names use "standard"
---   frame:GetTheme()             current theme name
---   frame:SetResizeEnabled(bool) turn resizing (and the grip) on or off
---   frame:IsResizeEnabled()      whether resizing is on
---   frame:SetClampedSize(w, h)   set the size, kept within the resize
---                                bounds; use it to restore a saved size
---   frame:IsTitleTruncated()     whether the title is too long for the
---                                frame and cut off with "..."; hovering
---                                it then shows the full title
---   frame.resizeButton           the grip Button (nil until resizing is
---                                first turned on)
---   frame.titleText       FontString (nil if no title given)
---   frame.titleBanner     Texture, the middle of the banner, with .left
---                         and .right end caps (nil if no title given);
---                         hidden in the modern and tooltip themes
---   frame.titleHeader     DialogHeaderTemplate frame holding titleText in
---                         the modern theme (nil until first used)
---   frame.border          the template border frame showing
---                         (DialogBorderTemplate or TooltipBackdropTemplate);
---                         nil in backdrop themes
---   frame.closeButton     Button     (nil if noCloseButton)
---   frame.dragHandle      the invisible Frame the title drags from (nil
---                         if no title given; then the whole frame drags)
---------------------------------------------------
-
+---A movable window.
+---@param opts table?
+---@return Frame
 function AlnUI:CreateDialog(opts)
     opts = opts or {}
 
-    -- the frame and its methods
     local frame = CreateFrame(
         "Frame",
         opts.name or nil,
@@ -827,26 +505,20 @@ function AlnUI:CreateDialog(opts)
     frame:SetMovable(true)
     frame:SetClampedToScreen(true)
 
-    -- stacking (3.5): to the front when shown or pressed; catching the
-    -- mouse keeps clicks from reaching frames behind it
     dialogs[frame] = true
     frame.BringToFront = BringToFront
     frame:EnableMouse(true)
     frame:HookScript("OnShow", BringToFront)
-    -- and once more a frame later, in case anything changed levels while
-    -- the dialog was opening
     frame:HookScript("OnShow", function(self)
         C_Timer.After(0, function()
             if self:IsShown() then KeepCloseButtonOnTop(self) end
         end)
     end)
     if not WatchMouseDown() then
-        -- no GLOBAL_MOUSE_DOWN: at least the frame itself brings it forward
         frame:HookScript("OnMouseDown", BringToFront)
     end
     frame:Hide()
 
-    -- the title, or dragging from the whole frame without one
     if opts.title then
         frame.titleBanner = CreateBanner(frame)
 
@@ -856,7 +528,6 @@ function AlnUI:CreateDialog(opts)
         t:SetText(opts.title)
         frame.titleText = t
 
-        -- sized and placed by SetTheme
         frame.alnTitleWidth = opts.titleWidth
         local dragHandle = CreateFrame("Frame", nil, frame)
         dragHandle:EnableMouse(true)
@@ -865,12 +536,10 @@ function AlnUI:CreateDialog(opts)
         dragHandle:SetScript("OnDragStop",  function() frame:StopMovingOrSizing() end)
         frame.dragHandle = dragHandle
 
-        -- the full title, when it is cut off
         AlnUI:AddTooltip(dragHandle, function()
             if frame.alnTitleTruncated then return frame.titleText:GetText() end
         end, nil, "ANCHOR_TOP")
 
-        -- more or less room for the title as the frame resizes
         frame:HookScript("OnSizeChanged", function(self)
             if self.alnTheme then ApplyThemeTitle(self, THEMES[self.alnTheme]) end
         end)
@@ -881,18 +550,14 @@ function AlnUI:CreateDialog(opts)
     end
 
     if not opts.noCloseButton then
-        -- placed by SetTheme
         frame.closeButton = CreateFrame("Button", nil, frame, "UIPanelCloseButton")
     end
 
-    -- after the title and close button exist, so the theme can fit and
-    -- place them
     frame:SetTheme(opts.theme)
 
-    -- resizing (3.6)
     frame.alnResizeBounds = {
         minW = opts.minWidth  or math.max(200, math.min(400, (opts.title
-            and (opts.titleWidth or NaturalWidth(frame.titleText) + 2 * BANNER_CAP + BANNER_PAD)
+            and (opts.titleWidth or NaturalWidth(frame.titleText) + 2 * BANNER_END_W + BANNER_PAD)
             or 0) + 40)),
         minH = opts.minHeight or 150,
         maxW = opts.maxWidth  or math.floor(UIParent:GetWidth()),
@@ -909,37 +574,13 @@ end
 
 --==================================================
 -- 4. Layout
---
--- Rows of columns, column headers, dividers and scrolling areas.
 --==================================================
 
---------------------------------------------------
--- AlnUI:CreateColumnRow(parent, opts, cols) -> fontstrings[]
---
--- Creates a horizontal row of FontStrings on `parent`.
---
--- opts (all optional):
---   anchorTo  frame   frame to anchor the row to (default parent)
---   x         number  x offset for the first column (default 0)
---   y         number  y offset for the row (default 0)
---   right     number  inset of the last column from anchorTo's right edge;
---                     only used when a column has fill (default 0)
---   font      string  font template for all columns (default "GameFontHighlight")
---
--- cols[i]:
---   width    number  column width (ignored for the fill column)
---   fill     bool    this column takes whatever width is left between its
---                    neighbours and follows anchorTo when it resizes; the
---                    columns after it line up from the right edge. At most
---                    one column may fill.
---   justify  string  "LEFT" or "RIGHT" (default "LEFT")
---   gap      number  gap before this column from the previous (default 0)
---   text     string  initial text (optional)
---   wordWrap bool    set to false to disable word wrap (default true)
---
--- Returns an array of FontStrings in column order.
---------------------------------------------------
-
+---A row of FontStrings in columns.
+---@param parent Frame
+---@param opts table?
+---@param cols table
+---@return FontString[]
 function AlnUI:CreateColumnRow(parent, opts, cols)
     opts = opts or {}
 
@@ -970,14 +611,12 @@ function AlnUI:CreateColumnRow(parent, opts, cols)
     for i, fs in ipairs(result) do
         local col = cols[i]
         if not fillIndex or i < fillIndex then
-            -- left to right from the first column
             if i == 1 then
                 fs:SetPoint("TOPLEFT", anchorTo, "TOPLEFT", x, y)
             else
                 fs:SetPoint("LEFT", result[i - 1], "RIGHT", col.gap or 0, 0)
             end
         elseif i == fillIndex then
-            -- stretch between the column before it and the one after it
             if i == 1 then
                 fs:SetPoint("TOPLEFT", anchorTo, "TOPLEFT", x, y)
             else
@@ -989,7 +628,6 @@ function AlnUI:CreateColumnRow(parent, opts, cols)
                 fs:SetPoint("TOPRIGHT", result[i + 1], "TOPLEFT", -(cols[i + 1].gap or 0), 0)
             end
         else
-            -- right to left from the last column
             if i == n then
                 fs:SetPoint("TOPRIGHT", anchorTo, "TOPRIGHT", -(opts.right or 0), y)
             else
@@ -1001,37 +639,13 @@ function AlnUI:CreateColumnRow(parent, opts, cols)
     return result
 end
 
---------------------------------------------------
--- AlnUI:CreateSortHeader(parent, opts, cols) -> header
---
--- A column header row whose columns sort when clicked. Lays out exactly
--- like CreateColumnRow (same opts and cols), so it lines up with rows made
--- the same way. Clicking a column cycles it through ascending, descending
--- and unsorted; unsorted means "use your default order". The sorted column
--- shows the native sort arrow.
---
--- opts: everything CreateColumnRow takes (font defaults to
--- "GameFontNormal" here), plus (all optional):
---   sortKey    any     initially sorted column key (default none)
---   ascending  bool    initial direction (default true)
---   onSort     func    onSort(key, ascending) when a click changes the
---                      sort; both are nil when the sort was cleared
---
--- cols[i]: everything CreateColumnRow takes, plus
---   key        any     sort key; columns without one are not clickable
---
--- Returns a table with:
---   header:SetSort(key, ascending)  change the sort without calling onSort;
---                                   key nil clears it, ascending defaults
---                                   to true
---   header:GetSort()                key, ascending (nil, nil when unsorted)
---   header.labels                   the column FontStrings
---   header.buttons                  clickable Buttons by column index, each
---                                   with .key and .arrow (the arrow Texture)
---------------------------------------------------
-
 local SORT_ARROW = "Interface\\Buttons\\UI-SortArrow"
 
+---A column header row that sorts when its columns are clicked.
+---@param parent Frame
+---@param opts table?
+---@param cols table
+---@return Frame
 function AlnUI:CreateSortHeader(parent, opts, cols)
     opts = opts or {}
 
@@ -1049,13 +663,11 @@ function AlnUI:CreateSortHeader(parent, opts, cols)
         for i, b in pairs(header.buttons) do
             local arrow, label = b.arrow, header.labels[i]
             if b.key == sortKey then
-                -- the texture points down; flip it for ascending
                 if ascending then
                     arrow:SetTexCoord(0, 0.5625, 1, 0)
                 else
                     arrow:SetTexCoord(0, 0.5625, 0, 1)
                 end
-                -- beside the text: after it when left-aligned, before it when right-aligned
                 arrow:ClearAllPoints()
                 local offset = label:GetStringWidth() + 4
                 if label:GetJustifyH() == "RIGHT" then
@@ -1084,7 +696,6 @@ function AlnUI:CreateSortHeader(parent, opts, cols)
             b.arrow:SetSize(9, 8)
             b.arrow:Hide()
 
-            -- ascending -> descending -> unsorted
             b:SetScript("OnClick", function()
                 if sortKey ~= col.key then
                     sortKey, ascending = col.key, true
@@ -1124,25 +735,12 @@ function AlnUI:CreateSortHeader(parent, opts, cols)
     return header
 end
 
---------------------------------------------------
--- AlnUI:CreateSeparator(parent, opts) -> texture
---
--- A horizontal line across `parent`, like <hr> in HTML.
---
--- opts (all optional):
---   y          number  offset from the top of parent (default 0)
---   x1         number  offset from parent's left edge (default 0)
---   x2         number  offset from parent's right edge; negative insets
---                      the line (default 0)
---   thickness  number  line height (default 1)
---   color      table   { r, g, b, a } (default { 0.6, 0.6, 0.6, 0.6 })
---   layer      string  draw layer (default "ARTWORK")
---
--- Returns the Texture.
---------------------------------------------------
-
 local DEFAULT_SEPARATOR_COLOR = { 0.6, 0.6, 0.6, 0.6 }
 
+---A horizontal line across `parent`.
+---@param parent Frame
+---@param opts table?
+---@return Texture
 function AlnUI:CreateSeparator(parent, opts)
     opts = opts or {}
 
@@ -1156,7 +754,6 @@ function AlnUI:CreateSeparator(parent, opts)
     line:SetPoint("TOPLEFT",  parent, "TOPLEFT",  opts.x1 or 0, y)
     line:SetPoint("TOPRIGHT", parent, "TOPRIGHT", opts.x2 or 0, y)
 
-    -- keep thin lines from blurring or vanishing at odd UI scales
     if line.SetSnapToPixelGrid then
         line:SetSnapToPixelGrid(false)
         line:SetTexelSnappingBias(0)
@@ -1165,25 +762,10 @@ function AlnUI:CreateSeparator(parent, opts)
     return line
 end
 
---------------------------------------------------
--- AlnUI:CreateScrollFrame(parent, opts) -> scroll, content
---
--- Creates a ScrollFrameTemplate scroll frame (the modern slim scroll bar)
--- with a content child frame inside it. For lists of rows, prefer
--- CreateScrollList.
---
--- opts (all optional):
---   x1, y1        number  TOPLEFT offset from parent (default 0, 0)
---   x2, y2        number  BOTTOMRIGHT offset from parent (default 0, 0);
---                         the scroll bar sits outside the right edge
---   contentWidth  number  initial content width  (default 0)
---   contentHeight number  initial content height (default 0)
---   childType     string  type for the child frame (default "Frame")
---
--- Returns: scroll, content
---   scroll.ScrollBar  the scroll bar
---------------------------------------------------
-
+---A scroll frame with a content frame.
+---@param parent Frame
+---@param opts table?
+---@return ScrollFrame scroll, Frame content
 function AlnUI:CreateScrollFrame(parent, opts)
     opts = opts or {}
 
@@ -1191,7 +773,6 @@ function AlnUI:CreateScrollFrame(parent, opts)
     scroll:SetPoint("TOPLEFT",     opts.x1 or 0,  opts.y1 or 0)
     scroll:SetPoint("BOTTOMRIGHT", opts.x2 or 0,  opts.y2 or 0)
 
-    -- same scroll bar placement as CreateScrollList
     local bar = scroll.ScrollBar
     bar:ClearAllPoints()
     bar:SetPoint("TOPLEFT",    scroll, "TOPRIGHT",    6, 0)
@@ -1204,42 +785,10 @@ function AlnUI:CreateScrollFrame(parent, opts)
     return scroll, content
 end
 
---------------------------------------------------
--- AlnUI:CreateScrollList(parent, opts) -> list
---
--- A scrolling list of column rows, built on the ScrollBox system: only
--- visible rows exist, and they are recycled while scrolling.
---
--- opts (all optional):
---   x1, y1     number  TOPLEFT offset from parent (default 0, 0)
---   x2, y2     number  BOTTOMRIGHT offset from parent (default 0, 0);
---                      the scroll bar sits outside the right edge
---   rowHeight  number  (default 20)
---   x          number  x offset of the first column in a row (default 0)
---   right      number  inset of the last column from the row's right edge,
---                      used with a fill column (default 0)
---   font       string  font template for all columns (default "GameFontHighlight")
---   columns    table   column specs, same as CreateColumnRow's cols; give
---                      one column fill = true to have it take the width
---                      left over as the list resizes
---   onRowInit  func    called as onRowInit(row, data) after the column
---                      text is set. Rows are recycled, so reset anything
---                      you change here on every call.
---   data       table   initial rows
---
--- Each data row is an array with one value per column (shown with
--- tostring). A non-table value is shown as a single-column row.
---
--- Returns the list frame with:
---   list:SetData(rows, resetScroll)  replace all rows; keeps the scroll
---                                    position unless resetScroll is true
---   list:GetNumRows()                number of data rows
---   list:ForEachRow(fn)              calls fn(row, data) for each row frame
---                                    currently showing data
---   list.scrollBar                   the scroll bar
---   row.cols                         a row's FontStrings, in column order
---------------------------------------------------
-
+---A scrolling list of column rows.
+---@param parent Frame
+---@param opts table?
+---@return Frame
 function AlnUI:CreateScrollList(parent, opts)
     opts = opts or {}
 
@@ -1248,7 +797,6 @@ function AlnUI:CreateScrollList(parent, opts)
     local columns   = opts.columns or {}
     local font      = opts.font or "GameFontHighlight"
 
-    -- push the text down so a single line sits in the middle of the row
     local fontObject = _G[font]
     local _, fontSize = fontObject and fontObject:GetFont()
     local textY = -math.max(0, math.floor((rowHeight - (fontSize or 12)) / 2))
@@ -1308,25 +856,12 @@ end
 
 --==================================================
 -- 5. Text
---
--- Static text and text the player types.
 --==================================================
 
---------------------------------------------------
--- AlnUI:CreateLabel(parent, opts) -> fontstring
---
--- opts (all optional):
---   text      string  initial text
---   font      string  font template (default "GameFontHighlight")
---   color     table   { r, g, b, a }
---   width     number  fixed width (default: fits the text)
---   justify   string  "LEFT" (default), "CENTER" or "RIGHT"
---   wordWrap  bool    set to false to disable word wrap (default true)
---   layer     string  draw layer (default "OVERLAY")
---
--- Returns the FontString.
---------------------------------------------------
-
+---A FontString.
+---@param parent Frame
+---@param opts table?
+---@return FontString
 function AlnUI:CreateLabel(parent, opts)
     opts = opts or {}
 
@@ -1343,26 +878,10 @@ function AlnUI:CreateLabel(parent, opts)
     return fs
 end
 
---------------------------------------------------
--- AlnUI:CreateEditBox(parent, opts) -> editbox
---
--- Wraps InputBoxTemplate. Escape and Enter clear focus.
---
--- opts (all optional):
---   name            string  global frame name
---   width           number  (default 160)
---   height          number  (default 20)
---   text            string  initial text
---   label           string  label shown above the box
---   maxLetters      number  maximum length
---   numeric         bool    digits only
---   onTextChanged   func    onTextChanged(text), for player typing only
---   onEnterPressed  func    onEnterPressed(text)
---
--- Returns the EditBox with:
---   editbox.label  FontString above the box (nil if no label given)
---------------------------------------------------
-
+---A text box.
+---@param parent Frame
+---@param opts table?
+---@return EditBox
 function AlnUI:CreateEditBox(parent, opts)
     opts = opts or {}
 
@@ -1377,7 +896,6 @@ function AlnUI:CreateEditBox(parent, opts)
     end
 
     if opts.label then
-        -- InputBoxTemplate's border sticks out ~5px to the left
         eb.label = eb:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
         eb.label:SetPoint("BOTTOMLEFT", eb, "TOPLEFT", -4, 2)
         eb.label:SetText(opts.label)
@@ -1397,29 +915,12 @@ end
 
 --==================================================
 -- 6. Controls
---
--- Things the player clicks, picks or drags. Tabs and the dropdown need
--- templates some clients lack; check HasTabs / HasDropdown first.
 --==================================================
 
---------------------------------------------------
--- AlnUI:CreateButton(parent, opts) -> button
---
--- Wraps UIPanelButtonTemplate.
---
--- opts (all optional):
---   name    string  global frame name
---   width   number  (default 120)
---   height  number  (default 24)
---   text         string  button label
---   onClick      func    OnClick handler
---   disabled     bool    start disabled (default false)
---   tooltip      string  tooltip title (see AddTooltip)
---   tooltipText  string  tooltip body
---
--- Returns the Button.
---------------------------------------------------
-
+---A button.
+---@param parent Frame
+---@param opts table?
+---@return Button
 function AlnUI:CreateButton(parent, opts)
     opts = opts or {}
 
@@ -1442,25 +943,10 @@ function AlnUI:CreateButton(parent, opts)
     return btn
 end
 
---------------------------------------------------
--- AlnUI:CreateIconButton(parent, opts) -> button
---
--- A square button showing an icon, with a hover highlight. The icon
--- nudges down while pressed and turns grey while disabled.
---
--- opts (all optional):
---   name         string  global frame name
---   size         number  width and height (default 32)
---   icon         string  texture path or file ID (default question mark)
---   onClick      func    OnClick handler
---   disabled     bool    start disabled (default false)
---   tooltip      string  tooltip title (see AddTooltip)
---   tooltipText  string  tooltip body
---
--- Returns the Button with:
---   button.icon  Texture
---------------------------------------------------
-
+---A square button showing an icon.
+---@param parent Frame
+---@param opts table?
+---@return Button
 function AlnUI:CreateIconButton(parent, opts)
     opts = opts or {}
 
@@ -1504,23 +990,10 @@ function AlnUI:CreateIconButton(parent, opts)
     return btn
 end
 
---------------------------------------------------
--- AlnUI:CreateCheckbox(parent, opts) -> checkbutton
---
--- Wraps UICheckButtonTemplate with a label to its right.
---
--- opts (all optional):
---   name      string  global frame name
---   label     string  label text
---   checked      bool    initial checked state
---   onChange     func    called as onChange(checked) on click
---   tooltip      string  tooltip title (see AddTooltip)
---   tooltipText  string  tooltip body
---
--- Returns the CheckButton with:
---   checkbox.label  FontString to the right of the button
---------------------------------------------------
-
+---A checkbox with a label to its right.
+---@param parent Frame
+---@param opts table?
+---@return CheckButton
 function AlnUI:CreateCheckbox(parent, opts)
     opts = opts or {}
 
@@ -1545,25 +1018,10 @@ function AlnUI:CreateCheckbox(parent, opts)
     return cb
 end
 
---------------------------------------------------
--- AlnUI:CreateRadioGroup(parent, opts) -> group
---
--- A vertical set of radio buttons where only one can be selected.
---
--- opts (all optional):
---   options   table   list of { value = v, label = "text" }, or plain
---                     values used as both value and label
---   selected  any     initially selected value (default none)
---   onChange  func    onChange(value) when a click changes the selection
---   spacing   number  vertical distance between buttons (default 22)
---   width     number  group width (default 200)
---
--- Returns a Frame sized to fit its buttons, with:
---   group:GetValue()       selected value, or nil
---   group:SetValue(value)  select without calling onChange
---   group.buttons          CheckButtons, each with .value and .label
---------------------------------------------------
-
+---A vertical set of radio buttons.
+---@param parent Frame
+---@param opts table?
+---@return Frame
 function AlnUI:CreateRadioGroup(parent, opts)
     opts = opts or {}
 
@@ -1593,7 +1051,6 @@ function AlnUI:CreateRadioGroup(parent, opts)
         b.label = b:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
         b.label:SetPoint("LEFT", b, "RIGHT", 4, 1)
         b.label:SetText(tostring(label))
-        -- make the label clickable too
         b:SetHitRectInsets(0, -(b.label:GetStringWidth() + 4), 0, 0)
 
         b:SetScript("OnClick", function(self)
@@ -1615,26 +1072,10 @@ function AlnUI:CreateRadioGroup(parent, opts)
     return group
 end
 
---------------------------------------------------
--- AlnUI:CreateSlider(parent, opts) -> slider
---
--- Wraps OptionsSliderTemplate with a label below it.
---
--- opts (all optional):
---   name        string  global frame name
---   width       number  slider width (default 200)
---   min         number  minimum value (default 0)
---   max         number  maximum value (default 100)
---   step        number  value step (default 1)
---   value       number  initial value; also fires onChange once on init
---   labelFormat string  format string passed to string.format(fmt, value)
---                       to auto-update the label on value change
---   onChange    func    called as onChange(value) on every value change
---
--- Returns the slider frame with:
---   slider.label  FontString below the slider
---------------------------------------------------
-
+---A slider with a label below it.
+---@param parent Frame
+---@param opts table?
+---@return Slider
 function AlnUI:CreateSlider(parent, opts)
     opts = opts or {}
 
@@ -1662,53 +1103,22 @@ function AlnUI:CreateSlider(parent, opts)
     return slider
 end
 
--- the native tab template for each CreateTabs style
 local TAB_TEMPLATES = {
     top    = "PanelTopTabButtonTemplate",
     bottom = "PanelTabButtonTemplate",
 }
 
---------------------------------------------------
--- AlnUI:HasTabs(style) -> bool
---
--- True when the client has the native tab template CreateTabs needs for
--- `style` ("top" by default, or "bottom").
---------------------------------------------------
-
+---True when the client has the tab template for `style`.
+---@param style string?
+---@return boolean
 function AlnUI:HasTabs(style)
     return HasTemplate(TAB_TEMPLATES[style or "top"] or "")
 end
 
---------------------------------------------------
--- AlnUI:CreateTabs(parent, opts) -> tabs
---
--- A row of native WoW tabs (PanelTopTabButtonTemplate or
--- PanelTabButtonTemplate, driven by PanelTemplates_*). Selecting a tab
--- shows its panel and hides the others. Errors on clients without the
--- template; check AlnUI:HasTabs(style).
---
--- opts (all optional):
---   tabs      table   tab labels
---   style     string  "top" (default): tabs on top of the content, or
---                     "bottom": tabs that hang below a frame, like the
---                     Character window. Anchor bottom tabs with e.g.
---                     tabs:SetPoint("TOPLEFT", frame, "BOTTOMLEFT", 12, 2)
---   panels    table   frames to show per tab index (can also be set
---                     later with tabs:SetPanel)
---   selected  number  initially selected index (default 1)
---   onSelect  func    onSelect(index) when the selection changes
---   tabWidth  number  fixed width for every tab (default: fit the text)
---   gap       number  horizontal space between tabs; negative overlaps
---                     them (default 0)
---
--- Returns a Frame sized to fit the row, with:
---   tabs:Select(index)          select a tab, calling onSelect if it changed
---   tabs:GetSelected()          selected index
---   tabs:SetPanel(index, frame) attach a panel to a tab
---   tabs.buttons                the tab Buttons
---   tabs.panels                 panels by tab index
---------------------------------------------------
-
+---A row of tabs, each showing its panel.
+---@param parent Frame
+---@param opts table?
+---@return Frame
 function AlnUI:CreateTabs(parent, opts)
     opts = opts or {}
 
@@ -1723,7 +1133,6 @@ function AlnUI:CreateTabs(parent, opts)
     local tabs = CreateFrame("Frame", nil, parent)
     tabs.buttons = {}
     tabs.panels  = {}
-    -- PanelTemplates_* look up a frame's tabs in .Tabs
     tabs.Tabs = tabs.buttons
     local selected
 
@@ -1793,45 +1202,11 @@ function AlnUI:CreateTabs(parent, opts)
     return tabs
 end
 
---------------------------------------------------
--- AlnUI:HasDropdown() -> bool
---
--- True when the client has the modern dropdown (WowStyle1DropdownTemplate)
--- that CreateDropdown needs.
---------------------------------------------------
-
+---True when the client has the modern dropdown.
+---@return boolean
 function AlnUI:HasDropdown()
     return HasTemplate("WowStyle1DropdownTemplate")
 end
-
---------------------------------------------------
--- AlnUI:CreateDropdown(parent, opts) -> dropdown
---
--- A <select> built on the modern dropdown (WowStyle1DropdownTemplate +
--- SetupMenu). Errors on clients without it; check AlnUI:HasDropdown().
---
--- opts (all optional):
---   name         string  global frame name
---   width        number  (default 160)
---   label        string  label shown above the dropdown
---   options      table   list of { value = v, label = "text" }, or plain
---                        values used as both value and label
---   selected     any     initially selected value (default none)
---   placeholder  string  text shown while nothing is selected
---                        (default "Select...")
---   onChange     func    onChange(value) when the player picks a
---                        different option
---   tooltip      string  tooltip title (see AddTooltip)
---   tooltipText  string  tooltip body
---
--- Returns the dropdown with:
---   dropdown:GetValue()          selected value, or nil
---   dropdown:SetValue(value)     select without calling onChange
---   dropdown:Choose(value)       select as if the player picked it
---                                (calls onChange if it changed)
---   dropdown:SetOptions(list)    replace the options
---   dropdown.label               FontString above (nil if no label given)
---------------------------------------------------
 
 local function NormalizeOptions(list)
     local out = {}
@@ -1845,6 +1220,10 @@ local function NormalizeOptions(list)
     return out
 end
 
+---A dropdown.
+---@param parent Frame
+---@param opts table?
+---@return DropdownButton
 function AlnUI:CreateDropdown(parent, opts)
     opts = opts or {}
 
@@ -1866,7 +1245,6 @@ function AlnUI:CreateDropdown(parent, opts)
         if changed and opts.onChange then opts.onChange(value) end
     end
 
-    -- re-runs the menu generator so the shown text matches the selection
     local function Refresh()
         dd:GenerateMenu()
     end
@@ -1913,31 +1291,14 @@ end
 
 --==================================================
 -- 7. Feedback
---
--- Showing the player progress, hints and short notifications.
 --==================================================
-
---------------------------------------------------
--- AlnUI:CreateProgressBar(parent, opts) -> statusbar
---
--- opts (all optional):
---   name         string  global frame name
---   width        number  (default 200)
---   height       number  (default 16)
---   min          number  (default 0)
---   max          number  (default 100)
---   value        number  (default 0)
---   color        table   { r, g, b, a } (default green)
---   labelFormat  string  string.format(fmt, value, max) shown centered on
---                        the bar, updated on every change
---
--- Returns the StatusBar with:
---   bar.label  FontString centered on the bar
---   bar.bg     background Texture
---------------------------------------------------
 
 local DEFAULT_BAR_COLOR = { 0.2, 0.7, 0.2 }
 
+---A progress bar.
+---@param parent Frame
+---@param opts table?
+---@return StatusBar
 function AlnUI:CreateProgressBar(parent, opts)
     opts = opts or {}
 
@@ -1971,22 +1332,6 @@ function AlnUI:CreateProgressBar(parent, opts)
     return bar
 end
 
---------------------------------------------------
--- AlnUI:AddTooltip(frame, title, text, anchor) -> frame
---
--- Shows a GameTooltip while the mouse is over `frame`. Hooks OnEnter and
--- OnLeave, so existing handlers keep working.
---
---   title   string  tooltip title, or a function(frame) returning
---                   title, text for tooltips that change (return nil to
---                   show nothing)
---   text    string  body text, wrapped (optional)
---   anchor  string  GameTooltip anchor (default "ANCHOR_RIGHT")
---
--- Sets frame.alnTooltip = { title, text, anchor }. Tooltips also show on
--- disabled buttons.
---------------------------------------------------
-
 local function ShowTooltip(frame)
     local tip = frame.alnTooltip
     local title, text = tip.title, tip.text
@@ -2000,10 +1345,15 @@ local function ShowTooltip(frame)
 end
 
 local function HideTooltip(frame)
-    -- leave other frames' tooltips alone
     if GameTooltip:GetOwner() == frame then GameTooltip:Hide() end
 end
 
+---Shows a tooltip while the mouse is over `frame`.
+---@param frame Frame
+---@param title string|function
+---@param text string?
+---@param anchor string?
+---@return Frame
 function AlnUI:AddTooltip(frame, title, text, anchor)
     local hooked = frame.alnTooltip ~= nil
     frame.alnTooltip = { title = title, text = text, anchor = anchor }
@@ -2021,67 +1371,19 @@ function AlnUI:AddTooltip(frame, title, text, anchor)
     return frame
 end
 
---------------------------------------------------
--- AlnUI:ShowToast(opts) -> frame
---
--- Shows a temporary centered-top notification that fades in, holds, then
--- fades out and hides itself. Only one toast shows at a time: while one
--- is up, new toasts wait in a queue and play in order.
---
--- opts (all optional):
---   width    number  (default 400)
---   height   number  (default 100)
---   icon     string  texture path; shown on the left at 64x64
---   title    string  large text centered slightly above middle
---   text     string  body text centered at middle
---   sound    number  sound ID played when the toast appears
---   theme    string  "gold" (default), "standard", "modern" or
---                    "tooltip" (see AlnUI:GetThemes("toast")); the
---                    window-only "basic" and "panel" use "tooltip";
---                    unknown and unavailable names use "gold"
---   fadeIn   number  fade-in duration in seconds (default 0.3)
---   duration number  seconds from appearing until fade-out begins (default 5)
---   fadeOut  number  fade-out duration in seconds (default 1)
---   queue    bool    set to false to show right away, on top of any
---                    toast already showing (default true)
---   progress table   a progress bar along the bottom, for "3 of 10"
---                    toasts: { value, min (default 0), max (default
---                    100), color, labelFormat (default "%d / %d"; false
---                    for no text) }. Update it while the toast shows
---                    through frame.bar
---   timer    bool    a thin bar along the bottom edge that runs down
---                    while the toast is up, until it starts to fade
---
--- Returns the toast frame right away; a queued toast stays hidden until
--- its turn. frame.alnState is "queued", "showing" or "done". With:
---   frame.titleText  the title FontString (nil without opts.title)
---   frame.text       the body FontString (nil without opts.text)
---   frame.bar        the progress bar (nil without opts.progress)
---   frame.timerBar   the countdown bar (nil without opts.timer)
---
--- Related:
---   AlnUI:GetActiveToast()      the queued toast showing now, or nil
---   AlnUI:GetNumQueuedToasts()  toasts waiting their turn
---   AlnUI:ClearToasts()         hide every toast showing (queued or
---                               not) and drop the queue
---------------------------------------------------
-
 local toastQueue  = {}
 local activeToast = nil
-local showing     = {}   -- every toast on screen, queued or not
+local showing     = {}
 local PlayNextToast
 
-local TOAST_EDGE     = 16   -- room for the border on every side
-local TOAST_BAR_H    = 12   -- the progress bar
-local TOAST_TIMER_H  = 3    -- the countdown bar
+local TOAST_EDGE     = 16
+local TOAST_BAR_H    = 12
+local TOAST_TIMER_H  = 3
 local TOAST_ICON     = 64
 
--- Adds the progress bar and/or countdown bar along the bottom of toast
--- `f`, and returns how far the text should move up to make room.
 local function BuildToastBars(f, opts)
-    local bottom = 12   -- the bars' distance from the bottom edge
+    local bottom = 12
     local raise  = 0
-    -- the bars start right of the icon, so they never run under it
     local left = opts.icon and (TOAST_EDGE + TOAST_ICON + 12) or TOAST_EDGE
 
     if opts.timer then
@@ -2119,7 +1421,6 @@ local function BuildToastBars(f, opts)
     return raise
 end
 
--- Runs the countdown bar down over `duration` seconds
 local function StartToastTimer(f, duration)
     local bar = f.timerBar
     if not bar then return end
@@ -2142,8 +1443,6 @@ local function BuildToast(opts)
     f:SetAlpha(0)
     f:Hide()
 
-    -- When an icon is present, shift text right so it sits beside the icon.
-    -- Pass opts.icon = nil to keep text fully centered with no icon.
     local textXOffset = 0
     if opts.icon then
         local icon = f:CreateTexture(nil, "ARTWORK")
@@ -2154,7 +1453,6 @@ local function BuildToast(opts)
         textXOffset = 40
     end
 
-    -- bars along the bottom push the text up a little
     local raise = BuildToastBars(f, opts)
 
     if opts.title then
@@ -2193,13 +1491,12 @@ local function BuildToast(opts)
     return f
 end
 
--- Ends a toast; if it was the queued one showing, starts the next
 local function FinishToast(f)
     if f.alnState == "done" then return end
     f.alnState = "done"
     f.alnFadeIn:Stop()
     f.alnFadeOut:Stop()
-    f:SetScript("OnUpdate", nil)   -- stops the countdown bar
+    f:SetScript("OnUpdate", nil)
     f:Hide()
     showing[f] = nil
     if f == activeToast then
@@ -2220,7 +1517,6 @@ local function PlayToast(f)
 
     f.alnFadeOut:SetScript("OnFinished", function() FinishToast(f) end)
     C_Timer.After(opts.duration or 5, function()
-        -- skip if the toast was cleared in the meantime
         if f.alnState == "showing" then f.alnFadeOut:Play() end
     end)
 end
@@ -2231,6 +1527,9 @@ PlayNextToast = function()
     if activeToast then PlayToast(activeToast) end
 end
 
+---A toast notification.
+---@param opts table?
+---@return Frame
 function AlnUI:ShowToast(opts)
     opts = opts or {}
 
@@ -2246,14 +1545,19 @@ function AlnUI:ShowToast(opts)
     return f
 end
 
+---The queued toast showing now, or nil.
+---@return Frame?
 function AlnUI:GetActiveToast()
     return activeToast
 end
 
+---The number of toasts waiting their turn.
+---@return number
 function AlnUI:GetNumQueuedToasts()
     return #toastQueue
 end
 
+---Hides every toast showing and drops the queue.
 function AlnUI:ClearToasts()
     local queued = toastQueue
     toastQueue = {}
@@ -2263,470 +1567,8 @@ function AlnUI:ClearToasts()
     activeToast = nil
     if current then FinishToast(current) end
 
-    -- and the ones shown with queue = false
     local others = {}
     for f in pairs(showing) do table.insert(others, f) end
     for _, f in ipairs(others) do FinishToast(f) end
 end
 
---==================================================
--- 8. Settings pages
---
--- An addon's page in the game's Settings (Options -> AddOns), laid out
--- like Blizzard's own pages but drawn on a canvas: a frame the addon owns.
--- Blizzard's vertical layout draws addon options on row frames it shares
--- with its own pages, so addon code can taint them; Blizzard then blocks
--- its Discord settings and blames the addon. A canvas page never touches
--- those rows. Its options don't show in the Settings search.
---==================================================
-
--- Blizzard's settings list measurements (Blizzard_SettingsList.lua,
--- Blizzard_SettingControls.lua and their XML)
-local SP_ROW_H     = 26
-local SP_HEADER_H  = 45
-local SP_SPACING   = 9
-local SP_PAD_TOP   = 10
-local SP_PAD_LEFT  = 25
-local SP_LABEL_X   = 37
-local SP_INDENT    = 15
--- every control starts at the same x and the wide ones share a width, so
--- they line up in one column (Blizzard's own rows each sit a bit apart)
-local SP_CONTROL_X = -80   -- from the row's center
-local SP_CONTROL_W = 250   -- Blizzard's slider width
-
-local function AtlasExists(atlas)
-    return C_Texture ~= nil and C_Texture.GetAtlasInfo ~= nil and C_Texture.GetAtlasInfo(atlas) ~= nil
-end
-
--- the row's label and tooltip text, like Blizzard's settings tooltip
-local function ShowRowTooltip(row, owner)
-    row.hoverBackground:Show()
-    if not row.alnLabel or row.alnLabel == "" then
-        return
-    end
-    GameTooltip:SetOwner(owner or row, "ANCHOR_RIGHT")
-    GameTooltip:SetText(row.alnLabel, 1, 1, 1)
-    local tip = row.alnTooltip
-    if type(tip) == "function" then tip = tip() end
-    if tip then
-        GameTooltip:AddLine(tip, 1, 0.82, 0, true)
-    end
-    GameTooltip:Show()
-end
-
-local function HideRowTooltip(row, owner)
-    row.hoverBackground:Hide()
-    if GameTooltip:GetOwner() == (owner or row.hover) then
-        GameTooltip:Hide()
-    end
-end
-
--- hovering `frame` highlights the row and shows its tooltip
-local function HoverWithRow(row, frame)
-    if frame.SetMotionScriptsWhileDisabled then
-        frame:SetMotionScriptsWhileDisabled(true)
-    end
-    frame:HookScript("OnEnter", function(self) ShowRowTooltip(row, self) end)
-    frame:HookScript("OnLeave", function(self) HideRowTooltip(row, self) end)
-end
-
-local SettingsPageMethods = {}
-
--- a new row under the last one
-local function NewRow(page, height)
-    local row = CreateFrame("Frame", nil, page.content)
-    row:SetHeight(height)
-    row:SetPoint("TOPLEFT", page.content, "TOPLEFT", SP_PAD_LEFT, -page.alnNextY)
-    row:SetPoint("RIGHT", page.content, "RIGHT")
-    page.alnNextY = page.alnNextY + height + SP_SPACING
-    page.content:SetHeight(page.alnNextY - SP_SPACING + SP_PAD_TOP)
-    table.insert(page.rows, row)
-    return row
-end
-
--- a row with a label on the left and a control on the right
-local function NewControlRow(page, o)
-    local row = NewRow(page, SP_ROW_H)
-    row.alnLabel   = o.label
-    row.alnTooltip = o.tooltip
-    row.alnEnabled = o.enabled
-
-    row.text = row:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    row.text:SetJustifyH("LEFT")
-    row.text:SetWordWrap(false)
-    row.text:SetPoint("LEFT", SP_LABEL_X + (o.indent and SP_INDENT or 0), 0)
-    row.text:SetPoint("RIGHT", row, "CENTER", -85, 0)
-    row.text:SetText(o.label or "")
-
-    -- the label half takes the mouse for the tooltip, like Blizzard's rows
-    row.hover = CreateFrame("Frame", nil, row)
-    row.hover:SetPoint("TOPLEFT")
-    row.hover:SetPoint("BOTTOMRIGHT", row, "BOTTOM", -80, 0)
-    row.hover:SetFrameLevel(row:GetFrameLevel())   -- under the controls
-    row.hover:EnableMouse(true)
-    row.hover:SetScript("OnEnter", function(self) ShowRowTooltip(row, self) end)
-    row.hover:SetScript("OnLeave", function(self) HideRowTooltip(row, self) end)
-
-    row.hoverBackground = row:CreateTexture(nil, "BACKGROUND")
-    row.hoverBackground:SetPoint("TOPLEFT", row, "TOPLEFT", -10, 0)
-    row.hoverBackground:SetPoint("BOTTOMRIGHT", row, "BOTTOMRIGHT", -5, 0)
-    row.hoverBackground:SetColorTexture(1, 1, 1, 0.1)
-    row.hoverBackground:Hide()
-
-    -- grey label and a disabled control
-    function row:SetEnabled(enabled)
-        if enabled then
-            self.text:SetTextColor(1, 0.82, 0)
-        else
-            self.text:SetTextColor(0.5, 0.5, 0.5)
-        end
-        if self.alnSetControlEnabled then
-            self.alnSetControlEnabled(enabled)
-        end
-    end
-
-    return row
-end
-
--- the checkbox Blizzard's settings use, else the classic one
-local function CreateSettingsCheckbox(row)
-    if not AtlasExists("checkbox-minimal") then
-        local cb = CreateFrame("CheckButton", nil, row, "UICheckButtonTemplate")
-        cb:SetSize(26, 26)
-        return cb
-    end
-    local cb = CreateFrame("CheckButton", nil, row)
-    cb:SetSize(30, 29)
-    local function Tex(atlas)
-        local t = cb:CreateTexture()
-        t:SetAtlas(atlas, true)
-        return t
-    end
-    cb:SetNormalTexture(Tex("checkbox-minimal"))
-    cb:SetPushedTexture(Tex("checkbox-minimal"))
-    cb:SetCheckedTexture(Tex("checkmark-minimal"))
-    if AtlasExists("checkmark-minimal-disabled") then
-        cb:SetDisabledCheckedTexture(Tex("checkmark-minimal-disabled"))
-    end
-    for _, t in ipairs({ cb:GetNormalTexture(), cb:GetPushedTexture(), cb:GetCheckedTexture(),
-        cb:GetDisabledCheckedTexture() }) do
-        t:ClearAllPoints()
-        t:SetPoint("CENTER")
-    end
-    return cb
-end
-
---------------------------------------------------
--- AlnUI:CreateSettingsPage(opts) -> page
---
--- An empty settings page. Add rows with the page's Add methods, in the
--- order they show, then call page:Register(). Each row reads its value
--- with `get` whenever the page is shown, and `set` saves a change.
---
--- opts (all optional):
---   name  string  the page's title and its name in the AddOns list
---
--- Returns the page frame with:
---   page:AddHeader(text)        a section title
---   page:AddCheckbox(o)         o: label, tooltip, get(), set(checked)
---   page:AddDropdown(o)         o: label, tooltip, get(), set(value),
---                               options (list or function returning one)
---                               of { value, label, tooltip }
---   page:AddSlider(o)           o: label, tooltip, get(), set(value),
---                               min, max, step, format(value) -> text
---   page:AddButton(o)           o: label, text (button text), tooltip,
---                               onClick, width (default 250)
---   page:Register(parent)       adds the page to Options -> AddOns, under
---                               the category `parent` if given; returns
---                               the category, nil on clients without
---                               canvas pages
---   page:Open()                 opens Settings on this page
---   page:Refresh()              re-reads every value (done on show)
---   page.rows                   the rows; each has .control, and rows with
---                               a label have row:SetEnabled(enabled)
---
--- Every Add method also takes:
---   indent   bool  indent the label, for an option that belongs to the
---                  one above it
---   enabled  func  enabled() -> bool, checked on every Refresh; a disabled
---                  row is greyed out
---------------------------------------------------
-
-function AlnUI:CreateSettingsPage(opts)
-    opts = opts or {}
-
-    local page = CreateFrame("Frame")
-    page:Hide()
-    page.name = opts.name or ""
-    page.rows = {}
-    page.alnNextY = SP_PAD_TOP
-
-    page.title = page:CreateFontString(nil, "ARTWORK", "GameFontHighlightHuge")
-    page.title:SetPoint("TOPLEFT", 7, -22)
-    page.title:SetJustifyH("LEFT")
-    page.title:SetText(page.name)
-
-    if AtlasExists("Options_HorizontalDivider") then
-        page.divider = page:CreateTexture(nil, "ARTWORK")
-        page.divider:SetAtlas("Options_HorizontalDivider", true)
-        page.divider:SetPoint("TOP", 0, -50)
-    end
-
-    -- the rows scroll when they don't fit
-    local hasTemplate = HasTemplate("ScrollFrameTemplate")
-    local scroll = CreateFrame("ScrollFrame", nil, page, hasTemplate and "ScrollFrameTemplate" or nil)
-    scroll:SetPoint("TOPLEFT", -15, -52)
-    scroll:SetPoint("BOTTOMRIGHT", -20, 2)
-    if scroll.ScrollBar then
-        local bar = scroll.ScrollBar
-        bar:ClearAllPoints()
-        bar:SetPoint("TOPLEFT", scroll, "TOPRIGHT", 0, -4)
-        bar:SetPoint("BOTTOMLEFT", scroll, "BOTTOMRIGHT", -1, 7)
-        if bar.SetHideIfUnscrollable then
-            bar:SetHideIfUnscrollable(true)
-        end
-    else
-        scroll:EnableMouseWheel(true)
-        scroll:SetScript("OnMouseWheel", function(self, delta)
-            local y = self:GetVerticalScroll() - delta * (SP_ROW_H + SP_SPACING) * 2
-            self:SetVerticalScroll(math.max(0, math.min(y, self:GetVerticalScrollRange())))
-        end)
-    end
-    page.scroll = scroll
-
-    page.content = CreateFrame("Frame", nil, scroll)
-    page.content:SetSize(1, SP_PAD_TOP)
-    scroll:SetScrollChild(page.content)
-    scroll:SetScript("OnSizeChanged", function(self, width)
-        page.content:SetWidth(width)
-    end)
-
-    for name, fn in pairs(SettingsPageMethods) do
-        page[name] = fn
-    end
-    page:SetScript("OnShow", function(self)
-        page.content:SetWidth(scroll:GetWidth())
-        self:Refresh()
-    end)
-
-    return page
-end
-
-function SettingsPageMethods:AddHeader(text)
-    local row = NewRow(self, SP_HEADER_H)
-    row.title = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightLarge")
-    row.title:SetJustifyH("LEFT")
-    row.title:SetJustifyV("TOP")
-    row.title:SetPoint("TOPLEFT", 7, -16)
-    row.title:SetText(text or "")
-    return row
-end
-
-function SettingsPageMethods:AddCheckbox(o)
-    local row = NewControlRow(self, o)
-    local cb = CreateSettingsCheckbox(row)
-    cb:SetPoint("LEFT", row, "CENTER", SP_CONTROL_X, 0)
-    cb:SetScript("OnClick", function(self)
-        local checked = self:GetChecked() and true or false
-        PlaySound(checked and SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON or SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_OFF)
-        if o.set then o.set(checked) end
-    end)
-    HoverWithRow(row, cb)
-    row.control = cb
-    row.alnSetControlEnabled = function(enabled) cb:SetEnabled(enabled) end
-    row.alnRefresh = function()
-        cb:SetChecked(o.get and o.get() and true or false)
-    end
-    return row
-end
-
--- the options as a list of { value, label, tooltip }
-local function DropdownOptions(o)
-    local list = o.options
-    if type(list) == "function" then list = list() end
-    local out = {}
-    for i, opt in ipairs(list or {}) do
-        if type(opt) == "table" then
-            out[i] = { value = opt.value, label = tostring(opt.label or opt.value), tooltip = opt.tooltip }
-        else
-            out[i] = { value = opt, label = tostring(opt) }
-        end
-    end
-    return out
-end
-
-function SettingsPageMethods:AddDropdown(o)
-    local row = NewControlRow(self, o)
-    local dd, holder
-    if HasTemplate("SettingsDropdownWithButtonsTemplate") then
-        -- Blizzard's settings dropdown, with the < > steppers
-        holder = CreateFrame("Frame", nil, row, "SettingsDropdownWithButtonsTemplate")
-        holder:SetWidth(SP_CONTROL_W)
-        holder:SetPoint("LEFT", row, "CENTER", SP_CONTROL_X, 3)
-        dd = holder.Dropdown
-        -- the < arrow on the column's left edge, the > arrow on its right one
-        local left, right = holder.DecrementButton:GetWidth(), holder.IncrementButton:GetWidth()
-        dd:ClearAllPoints()
-        dd:SetPoint("LEFT", holder, "LEFT", left + 5, 0)
-        dd:SetWidth(SP_CONTROL_W - left - 5 - right - 4)
-    elseif HasTemplate("WowStyle1DropdownTemplate") then
-        dd = CreateFrame("DropdownButton", nil, row, "WowStyle1DropdownTemplate")
-        dd:SetWidth(SP_CONTROL_W)
-        dd:SetPoint("LEFT", row, "CENTER", SP_CONTROL_X, 0)
-    end
-    if not dd then
-        -- no modern dropdown on this client: the value as text
-        local text = row:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-        text:SetPoint("LEFT", row, "CENTER", SP_CONTROL_X, 0)
-        row.control = text
-        row.alnRefresh = function()
-            local current = o.get and o.get()
-            for _, opt in ipairs(DropdownOptions(o)) do
-                if opt.value == current then
-                    text:SetText(opt.label)
-                end
-            end
-        end
-        return row
-    end
-
-    dd:SetupMenu(function(_, root)
-        for _, opt in ipairs(DropdownOptions(o)) do
-            local radio = root:CreateRadio(opt.label,
-                function() return o.get and o.get() == opt.value end,
-                function()
-                    if o.set and o.get() ~= opt.value then
-                        o.set(opt.value)
-                    end
-                end,
-                opt.value)
-            if opt.tooltip and radio.SetTooltip then
-                radio:SetTooltip(function(tooltip)
-                    GameTooltip_SetTitle(tooltip, opt.label)
-                    GameTooltip_AddNormalLine(tooltip, opt.tooltip)
-                end)
-            end
-        end
-    end)
-    HoverWithRow(row, dd)
-
-    row.control = holder or dd
-    row.dropdown = dd
-    row.alnSetControlEnabled = function(enabled)
-        if holder then
-            holder:SetEnabled(enabled)
-        else
-            dd:SetEnabled(enabled)
-        end
-    end
-    row.alnRefresh = function()
-        dd:GenerateMenu()
-        if holder and holder.UpdateSteppers then
-            holder:UpdateSteppers()
-        end
-    end
-    return row
-end
-
-function SettingsPageMethods:AddSlider(o)
-    local row = NewControlRow(self, o)
-    local min, max, step = o.min or 0, o.max or 100, o.step or 1
-    local format = o.format or tostring
-    local updating = false
-
-    -- a value on the slider's steps (drags give values in between)
-    local function Snap(value)
-        return min + math.floor((value - min) / step + 0.5) * step
-    end
-
-    local slider
-    if HasTemplate("MinimalSliderWithSteppersTemplate") and MinimalSliderWithSteppersMixin then
-        slider = CreateFrame("Frame", nil, row, "MinimalSliderWithSteppersTemplate")
-        slider:SetWidth(SP_CONTROL_W)
-        slider:SetPoint("LEFT", row, "CENTER", SP_CONTROL_X, 3)
-        local steps = math.floor((max - min) / step + 0.5)
-        local value = o.get and o.get() or min
-        slider:Init(value, min, max, steps, { [MinimalSliderWithSteppersMixin.Label.Right] = format })
-        slider:RegisterCallback(MinimalSliderWithSteppersMixin.Event.OnValueChanged, function(_, v)
-            if not updating and o.set then
-                o.set(Snap(v))
-            end
-        end, row)
-        HoverWithRow(row, slider.Slider)
-        row.alnSetControlEnabled = function(enabled) slider:SetEnabled(enabled) end
-    else
-        slider = AlnUI:CreateSlider(row, { min = min, max = max, step = step, width = SP_CONTROL_W })
-        slider:SetPoint("LEFT", row, "CENTER", SP_CONTROL_X, 0)
-        slider:HookScript("OnValueChanged", function(_, v)
-            slider.label:SetText(format(Snap(v)))
-            if not updating and o.set then
-                o.set(Snap(v))
-            end
-        end)
-        HoverWithRow(row, slider)
-        row.alnSetControlEnabled = function(enabled) slider:SetEnabled(enabled) end
-    end
-
-    row.control = slider
-    row.alnRefresh = function()
-        local value = o.get and o.get()
-        if value == nil then
-            return
-        end
-        updating = true
-        slider:SetValue(value)
-        updating = false
-    end
-    return row
-end
-
-function SettingsPageMethods:AddButton(o)
-    local row = NewControlRow(self, o)
-    local btn = CreateFrame("Button", nil, row, "UIPanelButtonTemplate")
-    btn:SetSize(o.width or SP_CONTROL_W, SP_ROW_H)
-    btn:SetText(o.text or "")
-    if o.label and o.label ~= "" then
-        btn:SetPoint("LEFT", row, "CENTER", SP_CONTROL_X, 0)
-    else
-        btn:SetPoint("LEFT", row.text, "LEFT", 0, 0)
-    end
-    btn:SetScript("OnClick", function(self)
-        if o.onClick then o.onClick(self) end
-    end)
-    HoverWithRow(row, btn)
-    row.control = btn
-    row.alnSetControlEnabled = function(enabled) btn:SetEnabled(enabled) end
-    return row
-end
-
-function SettingsPageMethods:Refresh()
-    for _, row in ipairs(self.rows) do
-        if row.alnRefresh then
-            row.alnRefresh()
-        end
-        if row.SetEnabled and row.alnEnabled then
-            row:SetEnabled(row.alnEnabled() and true or false)
-        end
-    end
-end
-
-function SettingsPageMethods:Register(parent)
-    if not (Settings and Settings.RegisterCanvasLayoutCategory) then
-        return nil
-    end
-    local category
-    if parent then
-        category = Settings.RegisterCanvasLayoutSubcategory(parent, self, self.name)
-    else
-        category = Settings.RegisterCanvasLayoutCategory(self, self.name)
-        Settings.RegisterAddOnCategory(category)
-    end
-    self.category = category
-    return category
-end
-
-function SettingsPageMethods:Open()
-    if self.category and Settings.OpenToCategory then
-        Settings.OpenToCategory(self.category:GetID())
-    end
-end
