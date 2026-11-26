@@ -4,7 +4,7 @@
 -- 1. Setup
 --==================================================
 
-local VERSION = 3
+local VERSION = 4
 
 if AlnUI and (AlnUI.version or 1) >= VERSION then return end
 
@@ -59,6 +59,8 @@ local THEMES = {
     },
     basic = {
         closeOffset   = 0,
+        -- where the client puts a panel's close button (Forever's differs from retail's); { 1, 0 } without it
+        defaultClose  = true,
         closePoint    = { 1, 0 },
         gripOffset    = 4,
         border        = "BasicFrameTemplate",
@@ -67,6 +69,8 @@ local THEMES = {
     },
     panel = {
         closeOffset   = 0,
+        -- where the client puts a panel's close button (Forever's differs from retail's); { 1, 0 } without it
+        defaultClose  = true,
         closePoint    = { 1, 0 },
         gripOffset    = 4,
         border        = "DefaultPanelTemplate",
@@ -166,11 +170,18 @@ end
 
 local function PlaceCloseButton(frame)
     local theme = THEMES[frame.alnTheme]
+    local button = frame.closeButton
+    button.alnSize = button.alnSize or { button:GetSize() }
+    button:SetSize(unpack(button.alnSize))
+    button:ClearAllPoints()
+    if theme.defaultClose and UIPanelCloseButtonDefaultAnchorsMixin then
+        UIPanelCloseButtonDefaultAnchorsMixin.OnLoad(button)
+        return
+    end
     local o = theme.closeOffset
     local x, y = -o, -o
     if theme.closePoint then x, y = theme.closePoint[1], theme.closePoint[2] end
-    frame.closeButton:ClearAllPoints()
-    frame.closeButton:SetPoint("TOPRIGHT", x, y)
+    button:SetPoint("TOPRIGHT", x, y)
 end
 
 local function PlaceResizeGrip(frame)

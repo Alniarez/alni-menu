@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.6
+
+- Updated UI library (AlnUI 4)
+
 ## 1.0.5
 
 - Updated UI library (AlnUI 3) again :)
